@@ -28,6 +28,9 @@ MODULES = [
     "market_decision_lab.scenarios",
     "market_decision_lab.storage",
     "market_decision_lab.log_store",
+    "market_decision_lab.strategy_backtest",
+    "market_decision_lab.strategies",
+    "market_decision_lab.strategy_lab",
 ]
 
 
