@@ -211,3 +211,4 @@ __marimo__/
 # Exported CSV files
 runs.csv
 trades.csv
+app/data/logs/
