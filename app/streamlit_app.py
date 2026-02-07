@@ -27,6 +27,7 @@ from market_decision_lab.data import fetch_ohlcv, select_symbol
 from market_decision_lab.decision import evaluate_run, final_decision
 from market_decision_lab.metrics import summarize_metrics
 from market_decision_lab.scenarios import run_scenarios
+from market_decision_lab.strategy_lab import OBJECTIVES, run_strategy_lab
 from market_decision_lab.log_store import CsvLogStore, sanitize_meta, to_json_str, utc_now_iso
 from market_decision_lab.storage import init_db, load_runs, load_trades, save_candles, save_run, save_trades
 
@@ -34,6 +35,7 @@ ASSETS = ["BTC", "ETH", "SOL", "ADA", "AVAX", "LINK", "DOT", "MATIC", "LTC", "BC
 
 TIMEFRAME_DAY_LIMITS = {"1h": 41, "4h": 166, "1d": 3650}
 COMPARE_MAX_DAYS = 41
+LAB_MAX_RUNS = 200
 
 st.set_page_config(page_title="Market Decision Lab", layout="wide")
 st.title("Market Decision Lab")
@@ -64,6 +66,20 @@ def _cached_markets(exchange_name: str) -> dict:
 def _cached_ohlcv(exchange_name: str, symbol: str, timeframe: str, days: int) -> pd.DataFrame:
     """Cache OHLCV pulls to reduce API calls and rate-limit risk."""
     return fetch_ohlcv(exchange_name, symbol, timeframe, days)
+
+
+@st.cache_data(ttl=60 * 10, show_spinner=False)
+def _cached_strategy_lab(
+    exchange_name: str,
+    symbol: str,
+    timeframe: str,
+    days: int,
+    objective: str,
+    max_runs: int,
+    top_n: int,
+) -> tuple[pd.DataFrame, dict]:
+    ohlcv_df = _cached_ohlcv(exchange_name, symbol, timeframe, days)
+    return run_strategy_lab(ohlcv_df, objective=objective, max_runs=max_runs, top_n=top_n)
 
 
 def fmt_pct(value: float) -> str:
@@ -250,10 +266,14 @@ if "quick_result" not in st.session_state:
     st.session_state.quick_result = None
 if "compare_result" not in st.session_state:
     st.session_state.compare_result = None
+if "strategy_lab_result" not in st.session_state:
+    st.session_state.strategy_lab_result = None
 
 with st.sidebar:
     st.header("Controls")
+    mode = st.selectbox("Mode", ["Quick Check", "A/B/C Compare", "Strategy Lab (Auto)"], index=0)
     with st.form("controls_form"):
+        st.subheader("Quick / Compare")
         exchange = st.selectbox("Exchange", ["kraken", "coinbase"], index=0)
         asset = st.selectbox("Asset", ASSETS, index=0)
         timeframe = st.selectbox("Timeframe", ["1h", "4h", "1d"], index=1)
@@ -278,8 +298,15 @@ with st.sidebar:
                 format="%.4f",
             )
 
-        submitted_quick = st.form_submit_button("Run Quick Check", use_container_width=True)
-        submitted_compare = st.form_submit_button("Run A/B/C Compare", use_container_width=True)
+        submitted_quick = st.form_submit_button("Run Quick Check", use_container_width=True, disabled=mode != "Quick Check")
+        submitted_compare = st.form_submit_button("Run A/B/C Compare", use_container_width=True, disabled=mode != "A/B/C Compare")
+
+    st.divider()
+    st.subheader("Strategy Lab (Auto)")
+    objective = st.selectbox("Objective", list(OBJECTIVES.keys()), index=0)
+    max_runs = st.slider("Max strategy runs", min_value=10, max_value=LAB_MAX_RUNS, value=60, step=10)
+    top_n = st.slider("Top strategies to display", min_value=3, max_value=20, value=10, step=1)
+    submitted_lab = st.button("Run Strategy Lab", use_container_width=True, disabled=mode != "Strategy Lab (Auto)")
 
     st.divider()
     st.subheader("Export")
@@ -315,6 +342,16 @@ inputs = {
     "tp_mult": float(tp_mult),
     "fee": float(fee),
     "slippage": float(slippage),
+}
+
+lab_inputs = {
+    "exchange": exchange,
+    "asset": asset,
+    "timeframe": timeframe,
+    "days": int(days),
+    "objective": objective,
+    "max_runs": int(max_runs),
+    "top_n": int(top_n),
 }
 
 if submitted_quick:
@@ -443,7 +480,33 @@ if submitted_compare:
             )
             render_error("Scenario compare failed. Please verify inputs and try again.", exc)
 
-quick_tab, compare_tab, history_tab = st.tabs(["Quick", "Compare", "History"])
+if submitted_lab:
+    run_id = str(uuid.uuid4())
+    append_event(run_id, "INFO", "ui.submit", "User submitted strategy lab", meta=lab_inputs)
+    try:
+        with st.spinner("Running auto strategy search..."):
+            markets = _cached_markets(lab_inputs["exchange"])
+            symbol = select_symbol(lab_inputs["exchange"], lab_inputs["asset"], markets)
+            results_df, details = _cached_strategy_lab(
+                lab_inputs["exchange"],
+                symbol,
+                lab_inputs["timeframe"],
+                int(lab_inputs["days"]),
+                lab_inputs["objective"],
+                int(lab_inputs["max_runs"]),
+                int(lab_inputs["top_n"]),
+            )
+            st.session_state.strategy_lab_result = {
+                "symbol": symbol,
+                "results_df": results_df,
+                "details": details,
+                "inputs": lab_inputs,
+            }
+    except Exception as exc:
+        append_error(run_id, exc, {"stage": "strategy_lab", **lab_inputs})
+        render_error("Strategy Lab failed. Please verify inputs and try again.", exc)
+
+quick_tab, compare_tab, strategy_tab, history_tab = st.tabs(["Quick", "Compare", "Strategy Lab", "History"])
 
 with quick_tab:
     quick_result = st.session_state.quick_result
@@ -496,6 +559,38 @@ with compare_tab:
         inspect = scenarios[chosen]
         st.line_chart(inspect["backtest_df"].set_index("ts")["equity"])
         st.dataframe(inspect["trades_df"], use_container_width=True)
+
+with strategy_tab:
+    st.caption("Research-only decision support. No live trading. No financial advice.")
+    strategy_lab_result = st.session_state.strategy_lab_result
+    if strategy_lab_result is None:
+        st.info("Set Strategy Lab inputs in the sidebar and click **Run Strategy Lab**.")
+    else:
+        results_df = strategy_lab_result["results_df"]
+        details = strategy_lab_result["details"]
+        top_df = results_df.copy()
+
+        st.subheader("Top Strategy Candidates")
+        st.dataframe(
+            top_df[["candidate_id", "strategy_name", "total_return_pct", "max_drawdown_pct", "sharpe", "win_rate", "n_trades", "params"]],
+            use_container_width=True,
+        )
+
+        candidate_options = top_df["candidate_id"].tolist()
+        selected_candidate = st.selectbox("Select strategy", candidate_options, key="strategy_lab_select")
+        selected = details[selected_candidate]
+
+        st.markdown("### Strategy Explanation")
+        st.write(selected["description"])
+
+        c1, c2, c3, c4 = st.columns(4)
+        c1.metric("Return", fmt_pct(selected["metrics"]["total_return_pct"]))
+        c2.metric("Max Drawdown", fmt_pct(selected["metrics"]["max_drawdown_pct"]))
+        c3.metric("Sharpe", f"{selected['metrics']['sharpe']:.2f}")
+        c4.metric("Win Rate", fmt_pct(selected["metrics"]["win_rate"]))
+
+        st.line_chart(selected["backtest_df"].set_index("ts")["equity"])
+        st.dataframe(selected["trades_df"], use_container_width=True)
 
 with history_tab:
     st.subheader("History")

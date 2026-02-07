@@ -8,6 +8,7 @@ Market Decision Lab is a Streamlit decision-support application for evaluating w
 ## Features
 - Pulls OHLCV market data through `ccxt`.
 - Runs a long-only EMA + ATR backtest.
+- Includes an **Auto Strategy Lab** that generates multiple explainable strategy candidates, backtests them, and ranks them by objective.
 - Computes performance and risk metrics.
 - Produces a decision label: **INVEST**, **CAUTION**, or **NO**.
 - Stores run and trade history in SQLite at `data/app.db`.
@@ -30,6 +31,26 @@ Market Decision Lab is a Streamlit decision-support application for evaluating w
 pip install -r requirements.txt
 streamlit run app/streamlit_app.py
 ```
+
+## Strategy Lab (Auto)
+The Strategy Lab searches through a compact library of simple long-only strategies and parameter combinations, then ranks candidates by your selected objective:
+- **Sharpe**
+- **Return**
+- **Min Drawdown**
+- **Win Rate**
+
+Included strategy families:
+- EMA Trend
+- EMA Crossover
+- RSI Mean Reversion
+- Donchian Breakout
+
+For each candidate, the app shows:
+- Human-readable strategy explanation text
+- Key metrics (return, drawdown, Sharpe, win rate, trade count)
+- Equity curve and trade table for inspection
+
+The search is intentionally capped (Streamlit Cloud friendly) to avoid long runtimes.
 
 ## Local sanity check
 ```bash
