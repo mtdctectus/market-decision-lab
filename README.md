@@ -81,6 +81,20 @@ print(f'Exported: {len(runs)} runs and {len(trades)} trades')
 "
 ```
 
+## Security audit
+This repository includes an automated security audit workflow that runs `pip-audit` to check for known vulnerabilities in Python dependencies. The workflow runs on:
+- Push to main branch
+- Pull requests to main branch
+- Manual workflow dispatch
+
+To run the security audit locally:
+```bash
+pip install pip-audit
+pip-audit -r requirements.txt --desc on
+```
+
+The audit will fail if any known vulnerabilities are found, ensuring that security issues are caught early.
+
 ## Streamlit Cloud deployment
 1. Push this repository to GitHub.
 2. Create a new Streamlit Cloud app from this repository.
