@@ -16,7 +16,7 @@ import pandas as pd
 import streamlit as st
 
 from mdl.backtest.engine import BacktestParams, run_backtest
-from mdl.data.ohlcv import fetch_ohlcv, select_symbol
+from mdl.data.ohlcv import TIMEFRAME_TO_MINUTES, fetch_ohlcv, select_symbol
 from mdl.decision import evaluate_run, final_decision
 from mdl.backtest.metrics import summarize_metrics
 from mdl.scenarios import run_scenarios
@@ -40,11 +40,34 @@ log_dir = Path(os.getenv("MDL_LOG_DIR", "app/data/logs"))
 if not log_dir.is_absolute():
     log_dir = ROOT / log_dir
 LOG_STORE = CsvLogStore(str(log_dir))
+OFFLINE_MODE = os.getenv("MDL_OFFLINE", "0") == "1"
+OFFLINE_FIXTURE_DIR = ROOT / "src" / "mdl" / "fixtures"
+
+
+@st.cache_data(ttl=60 * 10, show_spinner=False)
+def _offline_markets(exchange_name: str) -> dict:
+    pairs = [f"{asset}/USD" for asset in ASSETS] + [f"{asset}/USDT" for asset in ASSETS]
+    return {pair: {"symbol": pair, "exchange": exchange_name} for pair in pairs}
+
+
+@st.cache_data(ttl=60 * 10, show_spinner=False)
+def _offline_ohlcv(timeframe: str, days: int) -> pd.DataFrame:
+    fixture_path = OFFLINE_FIXTURE_DIR / f"ohlcv_{timeframe}.csv"
+    if not fixture_path.exists():
+        raise FileNotFoundError(f"Offline fixture not found: {fixture_path}")
+
+    df = pd.read_csv(fixture_path)
+    df["ts"] = pd.to_datetime(df["ts"], utc=True)
+    candles_needed = max(50, int(days * 1440 / TIMEFRAME_TO_MINUTES[timeframe]))
+    return df.tail(candles_needed).reset_index(drop=True)
 
 
 @st.cache_data(ttl=60 * 10, show_spinner=False)
 def _cached_markets(exchange_name: str) -> dict:
     """Cache exchange markets to speed up repeated runs in Streamlit."""
+    if OFFLINE_MODE:
+        return _offline_markets(exchange_name)
+
     import ccxt
 
     exchange_obj = getattr(ccxt, exchange_name)(
@@ -58,6 +81,9 @@ def _cached_markets(exchange_name: str) -> dict:
 @st.cache_data(ttl=60 * 10, show_spinner=False)
 def _cached_ohlcv(exchange_name: str, symbol: str, timeframe: str, days: int) -> pd.DataFrame:
     """Cache OHLCV pulls to reduce API calls and rate-limit risk."""
+    if OFFLINE_MODE:
+        return _offline_ohlcv(timeframe, days)
+
     return fetch_ohlcv(exchange_name, symbol, timeframe, days)
 
 
