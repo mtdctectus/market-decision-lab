@@ -197,6 +197,7 @@ def run_backtest(ohlcv_df: pd.DataFrame, params: BacktestParams | None = None) -
         )
         states[-1]["equity"] = cash
 
+    # Build result dataframes (equity_pre column was removed as it was unused)
     backtest_df = pd.DataFrame(states)
     trades_df = pd.DataFrame(
         trades,

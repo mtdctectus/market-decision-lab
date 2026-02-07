@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import asdict
 from itertools import product
+from typing import Any
 
 from .backtest import BacktestParams, run_backtest
 from .config import DD_MAX, TPW_TARGET
@@ -17,7 +19,7 @@ def _stability_score(metrics: dict) -> float:
     return 1 / (1 + dd_decimal + abs(metrics["Trades Per Week"] - TPW_TARGET))
 
 
-def _select_best(candidates: list[dict], key, reverse: bool = True) -> dict:
+def _select_best(candidates: list[dict], key: Callable[[dict], Any], reverse: bool = True) -> dict:
     """Helper to safely select best candidate from a list."""
     if not candidates:
         raise ValueError("Cannot select from empty candidates list")
@@ -65,16 +67,26 @@ def run_scenarios(exchange: str, symbol: str, days: int, initial_cash: float, ba
     used = set()
 
     # Scenario A: Best expectancy with balanced risk
-    sorted_a = sorted(
-        candidates,
-        key=lambda c: (
-            c["metrics"]["Expectancy %"],
-            -c["metrics"]["Max Drawdown %"],
-            -abs(c["metrics"]["Trades Per Week"] - TPW_TARGET),
-        ),
-        reverse=True,
-    )
-    scenario_a = next((c for c in sorted_a if sig(c) not in used), sorted_a[0] if sorted_a else candidates[0])
+    # Find first unused scenario, fallback to best if all used
+    unused_a = [c for c in candidates if sig(c) not in used]
+    if unused_a:
+        scenario_a = _select_best(
+            unused_a,
+            key=lambda c: (
+                c["metrics"]["Expectancy %"],
+                -c["metrics"]["Max Drawdown %"],
+                -abs(c["metrics"]["Trades Per Week"] - TPW_TARGET),
+            ),
+        )
+    else:
+        scenario_a = _select_best(
+            candidates,
+            key=lambda c: (
+                c["metrics"]["Expectancy %"],
+                -c["metrics"]["Max Drawdown %"],
+                -abs(c["metrics"]["Trades Per Week"] - TPW_TARGET),
+            ),
+        )
     used.add(sig(scenario_a))
 
     # Scenario B: Best return within risk limits
