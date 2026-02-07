@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import sqlite3
 import sys
 import uuid
 from datetime import datetime, timezone
@@ -51,6 +52,20 @@ def _cached_ohlcv(exchange_name: str, symbol: str, timeframe: str, days: int) ->
 
 def fmt_pct(value: float) -> str:
     return f"{value:.2f}%"
+
+
+def load_runs_for_export(db_path: Path) -> tuple[pd.DataFrame, str | None]:
+    """Load all runs for CSV export, returning a warning message when unavailable."""
+    if not db_path.exists():
+        return pd.DataFrame(), f"Database not found at `{db_path}`."
+
+    try:
+        with sqlite3.connect(db_path) as conn:
+            runs = pd.read_sql_query("SELECT * FROM runs ORDER BY run_ts DESC", conn)
+    except sqlite3.Error as exc:
+        return pd.DataFrame(), f"Could not load runs for export: {exc}."
+
+    return runs, None
 
 
 def save_single_run(exchange_name: str, symbol: str, tf: str, days_value: int, params: dict, metrics: dict, decision: dict, trades_df: pd.DataFrame):
@@ -178,6 +193,28 @@ with st.sidebar:
 
         submitted_quick = st.form_submit_button("Run Quick Check", use_container_width=True)
         submitted_compare = st.form_submit_button("Run A/B/C Compare", use_container_width=True)
+
+    st.divider()
+    st.subheader("Export")
+    if st.button("Export runs.csv", use_container_width=True):
+        export_df, export_warning = load_runs_for_export(ROOT / "data" / "app.db")
+        if export_warning:
+            st.warning(export_warning)
+            st.session_state.pop("runs_csv_export", None)
+        elif export_df.empty:
+            st.warning("No runs available to export.")
+            st.session_state.pop("runs_csv_export", None)
+        else:
+            st.session_state.runs_csv_export = export_df.to_csv(index=False).encode("utf-8")
+
+    if "runs_csv_export" in st.session_state:
+        st.download_button(
+            "Download runs.csv",
+            data=st.session_state.runs_csv_export,
+            file_name="runs.csv",
+            mime="text/csv",
+            use_container_width=True,
+        )
 
 inputs = {
     "exchange": exchange,
