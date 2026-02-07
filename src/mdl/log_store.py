@@ -85,7 +85,8 @@ def sanitize_meta(meta: dict) -> dict:
     return sanitized
 
 
-def _truncate_value(value):
+def _truncate_value(value: object) -> object:
+    """Truncate overly long string values before persistence."""
     if isinstance(value, str) and len(value) > 200:
         return f"{value[:20]}..."
     return value
