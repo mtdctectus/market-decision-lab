@@ -10,10 +10,10 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-CORE_PATH = ROOT / "core"
+SRC_PATH = ROOT / "src"
 APP_PATH = ROOT / "app"
 
-for path in (ROOT, CORE_PATH, APP_PATH):
+for path in (ROOT, SRC_PATH, APP_PATH):
     path_str = str(path)
     if path_str not in sys.path:
         sys.path.insert(0, path_str)
@@ -21,16 +21,15 @@ for path in (ROOT, CORE_PATH, APP_PATH):
 MODULES = [
     "pandas",
     "streamlit",
-    "market_decision_lab.backtest",
-    "market_decision_lab.data",
-    "market_decision_lab.decision",
-    "market_decision_lab.metrics",
-    "market_decision_lab.scenarios",
-    "market_decision_lab.storage",
-    "market_decision_lab.log_store",
-    "market_decision_lab.strategy_backtest",
-    "market_decision_lab.strategies",
-    "market_decision_lab.strategy_lab",
+    "mdl.backtest.engine",
+    "mdl.backtest.metrics",
+    "mdl.data.ohlcv",
+    "mdl.decision",
+    "mdl.scenarios",
+    "mdl.storage",
+    "mdl.log_store",
+    "mdl.strategies",
+    "mdl.lab.strategy_lab",
 ]
 
 

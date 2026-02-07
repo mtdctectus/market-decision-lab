@@ -7,11 +7,11 @@ from dataclasses import asdict
 from itertools import product
 from typing import Any
 
-from .backtest import BacktestParams, run_backtest
+from mdl.backtest.engine import BacktestParams, run_backtest
 from .config import DD_MAX, TPW_TARGET
-from .data import fetch_ohlcv
+from mdl.data.ohlcv import fetch_ohlcv
 from .decision import evaluate_run
-from .metrics import summarize_metrics
+from mdl.backtest.metrics import summarize_metrics
 
 
 def _stability_score(metrics: dict) -> float:

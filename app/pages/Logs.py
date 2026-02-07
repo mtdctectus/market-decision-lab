@@ -1,18 +1,14 @@
 from __future__ import annotations
 
 import os
-import sys
 from pathlib import Path
 
 import pandas as pd
 import streamlit as st
 
-ROOT = Path(__file__).resolve().parents[2]
-CORE_PATH = ROOT / "core"
-if str(CORE_PATH) not in sys.path:
-    sys.path.insert(0, str(CORE_PATH))
+from mdl.log_store import CsvLogStore
 
-from market_decision_lab.log_store import CsvLogStore
+ROOT = Path(__file__).resolve().parents[2]
 
 st.set_page_config(page_title="Logs", layout="wide")
 st.title("Logs")

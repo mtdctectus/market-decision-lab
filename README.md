@@ -15,12 +15,14 @@ Market Decision Lab is a Streamlit decision-support application for evaluating w
 - Collects production-friendly CSV logs for run audits and diagnostics.
 
 ## Repository structure
+- `app/` contains Streamlit UI code only.
+- `src/mdl/` contains the reusable research/decision engine package consumed by the UI and tools.
 - `app/streamlit_app.py` - Streamlit entrypoint.
 - `app/pages/Logs.py` - Streamlit page for downloading log CSVs and ZIP bundles.
-- `core/market_decision_lab/` - Core backtest, data, metrics, decision, scenario, storage, and logging logic.
+- `src/mdl/` - Internal engine package (data loaders, strategies, backtest engines, metrics, decision logic, and persistence).
 - `data/` - SQLite database directory created at runtime.
 - `app/data/logs/` - Default CSV log directory.
-- `export_data.py` - Script to export runs and trades data to CSV files.
+- `tools/export_data.py` - Script to export runs and trades data to CSV files.
 - `requirements.txt` - Python dependencies.
 
 ## Requirements
@@ -79,7 +81,7 @@ Privacy notes:
 ## Export data
 To export the runs and trades data from the SQLite database to CSV files:
 ```bash
-python export_data.py
+python tools/export_data.py
 ```
 
 This will create two files:

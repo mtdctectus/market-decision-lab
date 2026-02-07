@@ -1,11 +1,8 @@
 from __future__ import annotations
 
-import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-if str(ROOT) not in sys.path:
-    sys.path.append(str(ROOT))
 
 import json
 import os
@@ -18,18 +15,14 @@ from datetime import datetime, timezone
 import pandas as pd
 import streamlit as st
 
-CORE_PATH = ROOT / "core"
-if str(CORE_PATH) not in sys.path:
-    sys.path.insert(0, str(CORE_PATH))
-
-from market_decision_lab.backtest import BacktestParams, run_backtest
-from market_decision_lab.data import fetch_ohlcv, select_symbol
-from market_decision_lab.decision import evaluate_run, final_decision
-from market_decision_lab.metrics import summarize_metrics
-from market_decision_lab.scenarios import run_scenarios
-from market_decision_lab.strategy_lab import OBJECTIVES, run_strategy_lab
-from market_decision_lab.log_store import CsvLogStore, sanitize_meta, to_json_str, utc_now_iso
-from market_decision_lab.storage import init_db, load_runs, load_trades, save_candles, save_run, save_trades
+from mdl.backtest.engine import BacktestParams, run_backtest
+from mdl.data.ohlcv import fetch_ohlcv, select_symbol
+from mdl.decision import evaluate_run, final_decision
+from mdl.backtest.metrics import summarize_metrics
+from mdl.scenarios import run_scenarios
+from mdl.lab.strategy_lab import OBJECTIVES, run_strategy_lab
+from mdl.log_store import CsvLogStore, sanitize_meta, to_json_str, utc_now_iso
+from mdl.storage import init_db, load_runs, load_trades, save_candles, save_run, save_trades
 
 ASSETS = ["BTC", "ETH", "SOL", "ADA", "AVAX", "LINK", "DOT", "MATIC", "LTC", "BCH"]
 

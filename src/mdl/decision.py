@@ -8,7 +8,7 @@ Product-oriented decision logic:
 
 from __future__ import annotations
 
-from . import config
+from mdl import config
 
 
 def _num(metrics: dict, key: str, default: float = 0.0) -> float:
