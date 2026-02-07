@@ -48,7 +48,11 @@ def run_scenarios(exchange: str, symbol: str, days: int, initial_cash: float, ba
             }
         )
 
-    used_ids = set()
+    def sig(c: dict) -> tuple:
+        p = c.get("params", {})
+        return (p.get("timeframe"), p.get("ema_window"), p.get("signal_mode"))
+
+    used = set()
 
     sorted_a = sorted(
         candidates,
@@ -59,22 +63,23 @@ def run_scenarios(exchange: str, symbol: str, days: int, initial_cash: float, ba
         ),
         reverse=True,
     )
-    scenario_a = next(c for c in sorted_a if id(c) not in used_ids)
-    used_ids.add(id(scenario_a))
+    scenario_a = next(c for c in sorted_a if sig(c) not in used)
+    used.add(sig(scenario_a))
 
-    b_eligible = [c for c in candidates if c["metrics"]["Max Drawdown %"] <= DD_MAX and id(c) not in used_ids]
+    b_eligible = [c for c in candidates if c["metrics"]["Max Drawdown %"] <= DD_MAX and sig(c) not in used]
     if b_eligible:
         scenario_b = sorted(b_eligible, key=lambda c: c["metrics"]["Annualized Return %"], reverse=True)[0]
     else:
         scenario_b = sorted(
-            [c for c in candidates if id(c) not in used_ids],
+            [c for c in candidates if sig(c) not in used],
             key=lambda c: c["metrics"]["Annualized Return %"],
             reverse=True,
         )[0]
         scenario_b["risk_exceeded"] = True
-    used_ids.add(id(scenario_b))
+    used.add(sig(scenario_b))
 
-    c_options = [c for c in candidates if id(c) not in used_ids]
+    c_options = [c for c in candidates if sig(c) not in used]
     scenario_c = sorted(c_options, key=lambda c: _stability_score(c["metrics"]), reverse=True)[0]
+    used.add(sig(scenario_c))
 
     return {"A": scenario_a, "B": scenario_b, "C": scenario_c, "all_candidates": candidates}
