@@ -5,8 +5,8 @@ import sqlite3
 import pandas as pd
 from pathlib import Path
 
-# Database path
-db = Path('data/app.db')
+# Database path (resolved relative to this script's directory)
+db = Path(__file__).resolve().parent / 'data' / 'app.db'
 
 # Check if database exists
 if not db.exists():
