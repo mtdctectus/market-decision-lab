@@ -38,7 +38,7 @@ This will create two files:
 - `runs.csv` - All backtest runs ordered by timestamp (most recent first)
 - `trades.csv` - All trades from all runs ordered chronologically by exit time
 
-Alternatively, you can use a one-liner (note: the script version above includes a database existence check):
+Alternatively, you can use a one-liner (note: the script version is recommended as it includes a database existence check and uses explicit column lists for better maintainability):
 ```bash
 python -c "
 import sqlite3, pandas as pd
