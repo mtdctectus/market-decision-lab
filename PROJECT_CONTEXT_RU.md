@@ -1,44 +1,44 @@
-# Market Decision Lab — контекст проекта
+# Market Decision Lab — project context
 
-Скопируй этот текст в начало нового чата, чтобы я сразу понимал, что это за проект.
+Copy this into the start of a new chat so the assistant immediately understands the project.
 
-## Цель
-Исследовательское Streamlit‑приложение, которое:
-- берёт рыночные данные (OHLCV) через **ccxt**;
-- прогоняет бэктест стратегии;
-- считает метрики (доходность, просадка, частота сделок, ожидание);
-- выдаёт вердикт **INVEST / CAUTION / NO** с причинами;
-- сохраняет историю прогонов в SQLite.
+## Goal
+A research Streamlit app that:
+- pulls market OHLCV data through **ccxt**;
+- runs strategy backtests;
+- computes metrics (return, drawdown, trade frequency, expectancy);
+- produces a verdict **INVEST / CAUTION / NO** with reasons;
+- stores run history in SQLite.
 
-## Стек
-- Python
-- Streamlit (UI): `app/streamlit_app.py`
-- Core‑логика: `core/market_decision_lab/*`
-- Данные/история: `data/app.db` (создаётся автоматически)
-- Зависимости: `requirements.txt` в корне
+## Stack
+- Python 3.11+
+- Streamlit UI: `app/streamlit_app.py`
+- Core logic: `core/market_decision_lab/*`
+- Data/history: `data/app.db` (created automatically)
+- Dependencies: root `requirements.txt`
 
-## Как работает UI
-Есть 3 вкладки:
-- **Quick**: один прогон по выбранным параметрам
-- **Compare**: мини‑свип по параметрам/таймфреймам → выбираются сценарии A/B/C
-- **History**: история прогонов и сделки
+## How the UI works
+There are 3 tabs:
+- **Quick**: single run with selected parameters
+- **Compare**: mini parameter/timeframe sweep and scenario A/B/C selection
+- **History**: run and trade history
 
-Цвета:
-- 🟢 GREEN: хорошие метрики и приемлемый риск
-- 🟡 YELLOW: смешанный профиль
-- 🔴 RED: не проходит минимальные пороги (доходность/просадка/кол-во сделок)
+Colors:
+- 🟢 GREEN: strong metrics with acceptable risk
+- 🟡 YELLOW: mixed profile
+- 🔴 RED: fails minimum thresholds (return/drawdown/trade count)
 
-## Что уже сделано
-- Репозиторий структурирован как монорепо: `app/`, `core/`, `data/`.
-- Добавлено кеширование в UI для рынков и OHLCV (уменьшает повторные запросы и риск rate-limit).
-- Путь к SQLite закреплён относительно корня репозитория, чтобы база лежала в `data/app.db` независимо от cwd.
+## What is already done
+- Repository is structured as a monorepo: `app/`, `core/`, `data/`.
+- UI caching is added for markets and OHLCV (fewer repeated requests and lower rate-limit risk).
+- SQLite path is fixed relative to repository root, so DB is always in `data/app.db` regardless of current working directory.
 
-## Что нужно делать дальше
-- Держать деплой Streamlit Cloud стабильным.
-- По необходимости: добавить кнопку «Refresh data» и использование кеша свечей из SQLite.
-- Улучшать UX: подсказки, больше графиков, экспорт результатов.
+## What to do next
+- Keep Streamlit Cloud deployment stable.
+- As needed: add a "Refresh data" button and reuse candle cache from SQLite.
+- Improve UX: hints, more charts, and result export.
 
-## Режим работы ассистента
-- Не философствовать: если сломано — найти причину и дать готовую правку.
-- Минимум усложнений: Streamlit Cloud first.
-- Любые изменения: короткое объяснение + точные файлы/дифф.
+## Assistant working mode
+- Be practical: if something is broken, find the cause and provide a ready fix.
+- Keep complexity low: Streamlit Cloud first.
+- For any change: provide a short explanation and exact files/diff.
