@@ -40,7 +40,5 @@ pip install -r requirements.txt
 streamlit run app/streamlit_app.py
 ```
 
-## Project context (RU)
-If you collaborate with ChatGPT/Codex across multiple chats, drop these into your workflow:
-- `PROJECT_CONTEXT_RU.md` — copy-paste project context for a new chat
-- `CODEX_PROMPT_RU.md` — strict instructions for Codex/ChatGPT to audit and patch the repo
+## Project context
+Project context is documented directly in this repository's source files and README.
