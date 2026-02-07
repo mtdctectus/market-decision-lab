@@ -44,22 +44,22 @@ def evaluate_run(metrics: dict) -> dict:
     is_green = ann >= config.RET_GOOD and dd <= config.DD_WARN and trades >= config.MIN_TRADES
 
     if is_red:
-        status, color = "RED", "🔴"
+        status, color = "RED", "RED"
         if ann < config.RET_MIN:
             reasons.append(f"Annualized return {ann:.2f}% is below minimum {config.RET_MIN:.2f}%.")
         if dd > config.DD_MAX:
             reasons.append(f"Max drawdown {dd:.2f}% exceeds risk limit {config.DD_MAX:.2f}%.")
         if trades < config.MIN_TRADES:
-            reasons.append(f"Only {trades} trades (min {config.MIN_TRADES}) → low confidence.")
-        recommendation = "NO — conditions are not supportive under this setup."
+            reasons.append(f"Only {trades} trades (min {config.MIN_TRADES}) -> low confidence.")
+        recommendation = "NO - conditions are not supportive under this setup."
     elif is_green:
-        status, color = "GREEN", "🟢"
-        reasons.append(f"Return ≥ {config.RET_GOOD:.0f}% annualized and drawdown ≤ {config.DD_WARN:.0f}%.")
+        status, color = "GREEN", "GREEN"
+        reasons.append(f"Return >= {config.RET_GOOD:.0f}% annualized and drawdown <= {config.DD_WARN:.0f}%.")
         if abs(tpw - config.TPW_TARGET) > config.TPW_TOL:
             reasons.append(f"Trade frequency {tpw:.2f}/week deviates from target {config.TPW_TARGET:.0f}/week.")
-        recommendation = "INVEST — setup looks reasonable under tested conditions."
+        recommendation = "INVEST - setup looks reasonable under tested conditions."
     else:
-        status, color = "YELLOW", "🟡"
+        status, color = "YELLOW", "YELLOW"
         if ann < config.RET_GOOD:
             reasons.append(f"Annualized return {ann:.2f}% is below target {config.RET_GOOD:.2f}%.")
         if dd > config.DD_WARN:
@@ -70,7 +70,7 @@ def evaluate_run(metrics: dict) -> dict:
             reasons.append(f"Trades/week {tpw:.2f} is far from target {config.TPW_TARGET:.0f}.")
         if not reasons:
             reasons.append("Mixed return/risk profile.")
-        recommendation = "CAUTION — consider parameter changes or reduced position size."
+        recommendation = "CAUTION - consider parameter changes or reduced position size."
 
     return {
         "status": status,
@@ -103,9 +103,9 @@ def final_decision(scenarios_dict: dict) -> dict:
             )[0][0]
 
     if all_red:
-        return {"label": "NO", "text": "NO — all scenarios are high-risk or underperforming.", "recommended": recommended}
+        return {"label": "NO", "text": "NO - all scenarios are high-risk or underperforming.", "recommended": recommended}
 
     if any(s == "GREEN" for s in statuses.values()) and statuses.get(recommended) != "RED":
-        return {"label": "INVEST", "text": "INVEST — at least one scenario is robust with acceptable risk.", "recommended": recommended}
+        return {"label": "INVEST", "text": "INVEST - at least one scenario is robust with acceptable risk.", "recommended": recommended}
 
-    return {"label": "CAUTION", "text": "CAUTION — no fully robust setup; proceed only with risk controls.", "recommended": recommended}
+    return {"label": "CAUTION", "text": "CAUTION - no fully robust setup; proceed only with risk controls.", "recommended": recommended}
