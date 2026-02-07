@@ -5,9 +5,36 @@ from __future__ import annotations
 import math
 import random
 import time
+
 import pandas as pd
 
 TIMEFRAME_TO_MINUTES: dict[str, int] = {"1m": 1, "5m": 5, "15m": 15, "1h": 60, "4h": 240, "1d": 1440}
+
+
+_EXCHANGE_CACHE: dict[str, "ccxt.Exchange"] = {}
+
+
+def _get_exchange(exchange_name: str) -> "ccxt.Exchange":
+    import ccxt  # Lazy import to avoid blocking Streamlit startup.
+
+    normalized_name = exchange_name.lower()
+    cached = _EXCHANGE_CACHE.get(normalized_name)
+    if cached is not None:
+        return cached
+
+    exchange_cls = getattr(ccxt, normalized_name, None)
+    if exchange_cls is None:
+        raise ValueError(f"Unsupported exchange: {exchange_name}")
+
+    exchange = exchange_cls(
+        {
+            "enableRateLimit": True,
+            "timeout": 30000,
+            "options": {"adjustForTimeDifference": True},
+        }
+    )
+    _EXCHANGE_CACHE[normalized_name] = exchange
+    return exchange
 
 
 def select_symbol(exchange_name: str, asset: str, markets: dict) -> str:
@@ -40,17 +67,7 @@ def fetch_ohlcv(exchange_name: str, symbol: str, timeframe: str, days: int) -> p
     if timeframe not in TIMEFRAME_TO_MINUTES:
         raise ValueError(f"Unsupported timeframe: {timeframe}")
 
-    exchange_cls = getattr(ccxt, exchange_name.lower(), None)
-    if exchange_cls is None:
-        raise ValueError(f"Unsupported exchange: {exchange_name}")
-
-    exchange = exchange_cls(
-        {
-            "enableRateLimit": True,
-            "timeout": 30000,
-            "options": {"adjustForTimeDifference": True},
-        }
-    )
+    exchange = _get_exchange(exchange_name)
     retry_errors = (
         ccxt.DDoSProtection,
         ccxt.RateLimitExceeded,
