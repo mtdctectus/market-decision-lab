@@ -18,8 +18,16 @@ if not db.exists():
 conn = sqlite3.connect(db)
 
 # Export runs table (most recent first) and trades table (chronological order by exit time)
-runs = pd.read_sql_query('select * from runs order by run_ts desc', conn)
-trades = pd.read_sql_query('select * from trades order by exit_ts asc', conn)
+runs = pd.read_sql_query(
+    'SELECT run_id, run_ts, exchange, symbol, timeframe, days, params_json, metrics_json, decision_json '
+    'FROM runs ORDER BY run_ts DESC',
+    conn
+)
+trades = pd.read_sql_query(
+    'SELECT run_id, entry_ts, exit_ts, entry, exit, pnl, pnl_pct, reason, sl, tp '
+    'FROM trades ORDER BY exit_ts ASC',
+    conn
+)
 
 # Save to CSV files
 runs.to_csv('runs.csv', index=False)
