@@ -19,7 +19,7 @@ conn = sqlite3.connect(db)
 
 # Export runs table
 runs = pd.read_sql_query('select * from runs order by run_ts desc', conn)
-trades = pd.read_sql_query('select * from trades', conn)
+trades = pd.read_sql_query('select * from trades order by exit_ts asc', conn)
 
 # Save to CSV files
 runs.to_csv('runs.csv', index=False)

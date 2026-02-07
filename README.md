@@ -53,6 +53,8 @@ trades = pd.read_sql_query('select * from trades', conn)
 runs.to_csv('runs.csv', index=False)
 trades.to_csv('trades.csv', index=False)
 
+conn.close()
+
 print('Exported:', len(runs), 'runs and', len(trades), 'trades')
 "
 ```
