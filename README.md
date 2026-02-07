@@ -28,6 +28,12 @@ Market Decision Lab is a Streamlit decision-support application for evaluating w
 ## Requirements
 - Python 3.10+
 
+## Project Docs
+- [Architecture](ARCHITECTURE.md)
+- [Codex Guide](CODEX_GUIDE.md)
+- [Contributing](CONTRIBUTING.md)
+- [PR Checklist](PR_CHECKLIST.md)
+
 ## Run locally
 ```bash
 pip install -r requirements.txt
