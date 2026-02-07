@@ -48,7 +48,7 @@ db = Path('data/app.db')
 conn = sqlite3.connect(db)
 
 runs = pd.read_sql_query('select * from runs order by run_ts desc', conn)
-trades = pd.read_sql_query('select * from trades', conn)
+trades = pd.read_sql_query('select * from trades order by exit_ts asc', conn)
 
 runs.to_csv('runs.csv', index=False)
 trades.to_csv('trades.csv', index=False)
