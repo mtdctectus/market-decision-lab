@@ -40,6 +40,11 @@ pip install -r requirements.txt
 streamlit run app/streamlit_app.py
 ```
 
+### Environment variables
+- `MDL_LOG_DIR` (optional): directory for CSV logs. Default is `app/data/logs`.
+
+No API keys are required for the default public market data flow. If you add private integrations, keep secrets in environment variables or Streamlit Cloud secrets and never commit them.
+
 ## Strategy Lab (Auto)
 The Strategy Lab searches through a compact library of simple long-only strategies and parameter combinations, then ranks candidates by your selected objective:
 - **Sharpe**
@@ -132,5 +137,7 @@ The audit will fail if any known vulnerabilities are found, ensuring that securi
 ## Streamlit Cloud deployment
 1. Push this repository to GitHub.
 2. Create a new Streamlit Cloud app from this repository.
-3. Set the main file path to `app/streamlit_app.py`.
-4. Deploy.
+3. Ensure dependencies install from `requirements.txt` (includes local package install via `.`).
+4. Set the main file path to `app/streamlit_app.py`.
+5. (Optional) configure `MDL_LOG_DIR` in app secrets or environment variables.
+6. Deploy.
