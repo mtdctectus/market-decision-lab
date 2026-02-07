@@ -35,7 +35,7 @@ def select_symbol(exchange_name: str, asset: str, markets: dict) -> str:
 
 def fetch_ohlcv(exchange_name: str, symbol: str, timeframe: str, days: int) -> pd.DataFrame:
     """Fetch OHLCV candles for a symbol and timeframe covering `days`."""
-    import ccxt  # Lazy import avoids blocking Streamlit Cloud startup during module import.
+    import ccxt  # Lazy import to avoid blocking Streamlit startup.
 
     if timeframe not in TIMEFRAME_TO_MINUTES:
         raise ValueError(f"Unsupported timeframe: {timeframe}")
