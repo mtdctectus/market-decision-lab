@@ -5,12 +5,10 @@ from __future__ import annotations
 import math
 import random
 import time
-from typing import Dict
-
 import ccxt
 import pandas as pd
 
-TIMEFRAME_TO_MINUTES: Dict[str, int] = {"1m": 1, "5m": 5, "15m": 15, "1h": 60, "4h": 240, "1d": 1440}
+TIMEFRAME_TO_MINUTES: dict[str, int] = {"1m": 1, "5m": 5, "15m": 15, "1h": 60, "4h": 240, "1d": 1440}
 
 
 def select_symbol(exchange_name: str, asset: str, markets: dict) -> str:

@@ -6,6 +6,7 @@ build-backend = "setuptools.build_meta"
 name = "market-decision-lab"
 version = "0.1.0"
 description = "Research-only market decision engine and Streamlit app"
+readme = "README.md"
 requires-python = ">=3.10"
 
 [tool.setuptools]
