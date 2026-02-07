@@ -30,6 +30,25 @@ st.caption("Research-only decision support. No live trading. No financial advice
 init_db()
 
 
+@st.cache_data(ttl=60 * 10, show_spinner=False)
+def _cached_markets(exchange_name: str) -> dict:
+    """Cache exchange markets to speed up repeated runs in Streamlit."""
+    import ccxt
+
+    exchange_obj = getattr(ccxt, exchange_name)(
+        {
+            "enableRateLimit": True,
+        }
+    )
+    return exchange_obj.load_markets()
+
+
+@st.cache_data(ttl=60 * 10, show_spinner=False)
+def _cached_ohlcv(exchange_name: str, symbol: str, timeframe: str, days: int) -> pd.DataFrame:
+    """Cache OHLCV pulls to reduce API calls and rate-limit risk."""
+    return fetch_ohlcv(exchange_name, symbol, timeframe, days)
+
+
 def fmt_pct(value: float) -> str:
     return f"{value:.2f}%"
 
@@ -48,17 +67,10 @@ def render_error(message: str, exc: Exception):
 
 
 def run_quick_check(inputs: dict):
-    import ccxt
-
-    exchange_obj = getattr(ccxt, inputs["exchange"])(
-        {
-            "enableRateLimit": True,
-        }
-    )
-    markets = exchange_obj.load_markets()
+    markets = _cached_markets(inputs["exchange"])
     symbol = select_symbol(inputs["exchange"], inputs["asset"], markets)
 
-    ohlcv_df = fetch_ohlcv(inputs["exchange"], symbol, inputs["timeframe"], int(inputs["days"]))
+    ohlcv_df = _cached_ohlcv(inputs["exchange"], symbol, inputs["timeframe"], int(inputs["days"]))
     save_candles(inputs["exchange"], symbol, inputs["timeframe"], ohlcv_df)
 
     params_obj = BacktestParams(
@@ -96,14 +108,7 @@ def run_quick_check(inputs: dict):
 
 
 def run_compare_check(inputs: dict):
-    import ccxt
-
-    exchange_obj = getattr(ccxt, inputs["exchange"])(
-        {
-            "enableRateLimit": True,
-        }
-    )
-    markets = exchange_obj.load_markets()
+    markets = _cached_markets(inputs["exchange"])
     symbol = select_symbol(inputs["exchange"], inputs["asset"], markets)
 
     scenarios = run_scenarios(
