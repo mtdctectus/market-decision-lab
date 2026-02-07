@@ -1,0 +1,64 @@
+"""Market data fetching utilities via ccxt."""
+
+from __future__ import annotations
+
+import math
+from typing import Dict
+
+import ccxt
+import pandas as pd
+
+TIMEFRAME_TO_MINUTES: Dict[str, int] = {"1m": 1, "5m": 5, "15m": 15, "1h": 60, "4h": 240, "1d": 1440}
+
+
+def select_symbol(exchange_name: str, asset: str, markets: dict) -> str:
+    """Resolve symbol by exchange rules and availability."""
+    asset = asset.upper()
+    exchange_name = exchange_name.lower()
+
+    if exchange_name == "coinbase":
+        symbol = f"{asset}/USD"
+        if symbol not in markets:
+            raise ValueError(f"Symbol {symbol} not available on Coinbase")
+        return symbol
+
+    if exchange_name == "kraken":
+        preferred = f"{asset}/USDT"
+        fallback = f"{asset}/USD"
+        if preferred in markets:
+            return preferred
+        if fallback in markets:
+            return fallback
+        raise ValueError(f"Neither {preferred} nor {fallback} available on Kraken")
+
+    raise ValueError("Only Kraken and Coinbase are supported")
+
+
+def fetch_ohlcv(exchange_name: str, symbol: str, timeframe: str, days: int) -> pd.DataFrame:
+    """Fetch OHLCV candles for a symbol and timeframe covering `days`."""
+    if timeframe not in TIMEFRAME_TO_MINUTES:
+        raise ValueError(f"Unsupported timeframe: {timeframe}")
+
+    exchange_cls = getattr(ccxt, exchange_name.lower(), None)
+    if exchange_cls is None:
+        raise ValueError(f"Unsupported exchange: {exchange_name}")
+
+    exchange = exchange_cls({"enableRateLimit": True})
+    markets = exchange.load_markets()
+    if symbol not in markets:
+        raise ValueError(f"Symbol {symbol} is not available on {exchange_name}")
+
+    candles_needed = max(50, math.ceil(days * 1440 / TIMEFRAME_TO_MINUTES[timeframe]))
+    limit = min(1000, candles_needed + 20)
+    since = exchange.milliseconds() - (candles_needed + 20) * TIMEFRAME_TO_MINUTES[timeframe] * 60 * 1000
+
+    raw = exchange.fetch_ohlcv(symbol, timeframe=timeframe, since=since, limit=limit)
+    if not raw:
+        raise ValueError("No OHLCV data returned")
+
+    df = pd.DataFrame(raw, columns=["ts", "open", "high", "low", "close", "volume"])
+    df["ts"] = pd.to_datetime(df["ts"], unit="ms", utc=True)
+    numeric_cols = ["open", "high", "low", "close", "volume"]
+    df[numeric_cols] = df[numeric_cols].astype(float)
+    df = df.drop_duplicates(subset=["ts"]).sort_values("ts").reset_index(drop=True)
+    return df
