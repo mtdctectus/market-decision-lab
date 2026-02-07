@@ -127,10 +127,16 @@ def run_backtest(ohlcv_df: pd.DataFrame, params: BacktestParams | None = None) -
 
         if (not in_position) and (cooldown <= 0) and not np.isnan(atr):
             if _entry_signal(df, i, params.signal_mode):
-                if params.entry_mode == "next_open" and i + 1 < len(df):
-                    signal_idx = i + 1
-                    fill_raw = float(df.loc[signal_idx, "open"])
-                    fill_ts = df.loc[signal_idx, "ts"]
+                # Check bounds for next_open mode to avoid accessing beyond dataframe
+                if params.entry_mode == "next_open":
+                    if i + 1 < len(df):
+                        signal_idx = i + 1
+                        fill_raw = float(df.loc[signal_idx, "open"])
+                        fill_ts = df.loc[signal_idx, "ts"]
+                    else:
+                        # If we're at the last candle, use current close instead of next open
+                        fill_raw = float(close_p)
+                        fill_ts = ts
                 else:
                     fill_raw = float(close_p)
                     fill_ts = ts
@@ -166,7 +172,6 @@ def run_backtest(ohlcv_df: pd.DataFrame, params: BacktestParams | None = None) -
                 "action": action,
                 "sl": sl if in_position else np.nan,
                 "tp": tp if in_position else np.nan,
-                "equity_pre": equity,
             }
         )
 
@@ -192,7 +197,7 @@ def run_backtest(ohlcv_df: pd.DataFrame, params: BacktestParams | None = None) -
         )
         states[-1]["equity"] = cash
 
-    backtest_df = pd.DataFrame(states).drop(columns=["equity_pre"], errors="ignore")
+    backtest_df = pd.DataFrame(states)
     trades_df = pd.DataFrame(
         trades,
         columns=["entry_ts", "exit_ts", "entry", "exit", "pnl", "pnl_pct", "reason", "sl", "tp"],

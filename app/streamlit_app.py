@@ -273,11 +273,16 @@ with history_tab:
         if run_id:
             trades = load_trades(run_id)
             st.dataframe(trades, use_container_width=True)
-            selected = runs.loc[runs["run_id"] == run_id].iloc[0]
-            st.json(
-                {
-                    "params": json.loads(selected["params_json"]),
-                    "metrics": json.loads(selected["metrics_json"]),
-                    "decision": json.loads(selected["decision_json"]),
-                }
-            )
+            # Check if run_id exists in dataframe before accessing
+            matching_runs = runs.loc[runs["run_id"] == run_id]
+            if not matching_runs.empty:
+                selected = matching_runs.iloc[0]
+                st.json(
+                    {
+                        "params": json.loads(selected["params_json"]),
+                        "metrics": json.loads(selected["metrics_json"]),
+                        "decision": json.loads(selected["decision_json"]),
+                    }
+                )
+            else:
+                st.warning(f"Run {run_id} not found in loaded history.")
