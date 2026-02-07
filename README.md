@@ -36,7 +36,7 @@ python export_data.py
 
 This will create two files:
 - `runs.csv` - All backtest runs ordered by timestamp (most recent first)
-- `trades.csv` - All trades from all runs
+- `trades.csv` - All trades from all runs ordered chronologically by exit time
 
 Alternatively, you can use a one-liner:
 ```bash
@@ -55,7 +55,7 @@ trades.to_csv('trades.csv', index=False)
 
 conn.close()
 
-print('Exported:', len(runs), 'runs and', len(trades), 'trades')
+print(f'Exported: {len(runs)} runs and {len(trades)} trades')
 "
 ```
 
