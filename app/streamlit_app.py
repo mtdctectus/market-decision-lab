@@ -1,8 +1,11 @@
 from __future__ import annotations
 
 import json
+import os
 import sqlite3
 import sys
+import time
+import traceback
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
@@ -20,6 +23,7 @@ from market_decision_lab.data import fetch_ohlcv, select_symbol
 from market_decision_lab.decision import evaluate_run, final_decision
 from market_decision_lab.metrics import summarize_metrics
 from market_decision_lab.scenarios import run_scenarios
+from market_decision_lab.log_store import CsvLogStore, sanitize_meta, to_json_str, utc_now_iso
 from market_decision_lab.storage import init_db, load_runs, load_trades, save_candles, save_run, save_trades
 
 ASSETS = ["BTC", "ETH", "SOL", "ADA", "AVAX", "LINK", "DOT", "MATIC", "LTC", "BCH"]
@@ -29,6 +33,11 @@ st.title("Market Decision Lab")
 st.caption("Research-only decision support. No live trading. No financial advice.")
 
 init_db()
+
+log_dir = Path(os.getenv("MDL_LOG_DIR", "app/data/logs"))
+if not log_dir.is_absolute():
+    log_dir = ROOT / log_dir
+LOG_STORE = CsvLogStore(str(log_dir))
 
 
 @st.cache_data(ttl=60 * 10, show_spinner=False)
@@ -81,11 +90,63 @@ def render_error(message: str, exc: Exception):
         st.exception(exc)
 
 
-def run_quick_check(inputs: dict):
+def decision_to_status(decision: dict) -> str:
+    status = str(decision.get("status", "")).upper()
+    if status == "GREEN":
+        return "ok"
+    if status == "YELLOW":
+        return "warn"
+    return "fail"
+
+
+def append_event(run_id: str, level: str, stage: str, message: str, duration_ms: int | None = None, meta: dict | None = None):
+    LOG_STORE.append_event(
+        {
+            "event_ts": utc_now_iso(),
+            "run_id": run_id,
+            "level": level,
+            "stage": stage,
+            "message": message,
+            "duration_ms": duration_ms,
+            "meta_json": to_json_str(sanitize_meta(meta or {})),
+        }
+    )
+
+
+def append_error(run_id: str, exc: Exception, context: dict):
+    tb = traceback.format_exc()
+    lines = tb.splitlines()
+    short_tb = "\n".join(lines[-30:])[-4000:]
+    LOG_STORE.append_error(
+        {
+            "error_ts": utc_now_iso(),
+            "run_id": run_id,
+            "exc_type": type(exc).__name__,
+            "exc_message": str(exc),
+            "traceback_short": short_tb,
+            "context_json": to_json_str(sanitize_meta(context)),
+        }
+    )
+
+
+def run_quick_check(inputs: dict, run_id: str):
+    append_event(run_id, "INFO", "run.started", "Quick check started", meta=inputs)
+    append_event(run_id, "INFO", "data.load_markets", "Loading exchange markets", meta={"exchange": inputs["exchange"]})
     markets = _cached_markets(inputs["exchange"])
     symbol = select_symbol(inputs["exchange"], inputs["asset"], markets)
 
+    append_event(run_id, "INFO", "data.fetch_ohlcv", "Fetching OHLCV candles", meta={"exchange": inputs["exchange"], "symbol": symbol, "timeframe": inputs["timeframe"], "days": int(inputs["days"])})
+    fetch_start = time.perf_counter()
     ohlcv_df = _cached_ohlcv(inputs["exchange"], symbol, inputs["timeframe"], int(inputs["days"]))
+    fetch_duration = int((time.perf_counter() - fetch_start) * 1000)
+    append_event(
+        run_id,
+        "INFO",
+        "data.fetch_ohlcv",
+        "Fetched OHLCV candles",
+        duration_ms=fetch_duration,
+        meta={"exchange": inputs["exchange"], "symbol": symbol, "timeframe": inputs["timeframe"], "days": int(inputs["days"])} ,
+    )
     save_candles(inputs["exchange"], symbol, inputs["timeframe"], ohlcv_df)
 
     params_obj = BacktestParams(
@@ -100,6 +161,7 @@ def run_quick_check(inputs: dict):
 
     bt_df, tr_df = run_backtest(ohlcv_df, params_obj)
     metrics = summarize_metrics(bt_df, tr_df, params_obj.initial_cash, int(inputs["days"]))
+    append_event(run_id, "INFO", "decision.evaluate", "Evaluating decision")
     decision = evaluate_run(metrics)
 
     save_single_run(
@@ -122,10 +184,14 @@ def run_quick_check(inputs: dict):
     }
 
 
-def run_compare_check(inputs: dict):
+def run_compare_check(inputs: dict, run_id: str):
+    append_event(run_id, "INFO", "run.started", "Scenario compare started", meta=inputs)
+    append_event(run_id, "INFO", "data.load_markets", "Loading exchange markets", meta={"exchange": inputs["exchange"]})
     markets = _cached_markets(inputs["exchange"])
     symbol = select_symbol(inputs["exchange"], inputs["asset"], markets)
 
+    append_event(run_id, "INFO", "data.fetch_ohlcv", "Starting scenario data and backtests", meta={"exchange": inputs["exchange"], "symbol": symbol, "days": int(inputs["days"])})
+    compare_start = time.perf_counter()
     scenarios = run_scenarios(
         inputs["exchange"],
         symbol,
@@ -139,7 +205,17 @@ def run_compare_check(inputs: dict):
             "slippage_per_side": inputs["slippage"],
         },
     )
+    compare_duration = int((time.perf_counter() - compare_start) * 1000)
+    append_event(
+        run_id,
+        "INFO",
+        "data.fetch_ohlcv",
+        "Scenario data and backtests completed",
+        duration_ms=compare_duration,
+        meta={"exchange": inputs["exchange"], "symbol": symbol, "days": int(inputs["days"])},
+    )
 
+    append_event(run_id, "INFO", "decision.evaluate", "Building final scenario decision")
     final = final_decision({k: scenarios[k] for k in ["A", "B", "C"]})
 
     for key in ["A", "B", "C"]:
@@ -231,17 +307,125 @@ inputs = {
 }
 
 if submitted_quick:
+    run_id = str(uuid.uuid4())
+    run_started = time.perf_counter()
+    rate_limit_hits = 0
+    append_event(run_id, "INFO", "ui.submit", "User submitted quick check", meta=inputs)
     try:
         with st.spinner("Computing..."):
-            st.session_state.quick_result = run_quick_check(inputs)
+            st.session_state.quick_result = run_quick_check(inputs, run_id)
+        latency_ms = int((time.perf_counter() - run_started) * 1000)
+        quick_result = st.session_state.quick_result
+        LOG_STORE.append_run(
+            {
+                "run_id": run_id,
+                "run_ts": utc_now_iso(),
+                "exchange": inputs["exchange"],
+                "symbol": quick_result["symbol"],
+                "timeframe": inputs["timeframe"],
+                "days": int(inputs["days"]),
+                "status": decision_to_status(quick_result["decision"]),
+                "latency_ms": latency_ms,
+                "rate_limit_hits": rate_limit_hits,
+                "params_json": to_json_str(sanitize_meta(inputs)),
+                "metrics_json": to_json_str(quick_result["metrics"]),
+                "decision_json": to_json_str(quick_result["decision"]),
+            }
+        )
     except Exception as exc:
+        if "Too many requests" in str(exc) or "DDoSProtection" in str(exc):
+            rate_limit_hits += 1
+        append_error(
+            run_id,
+            exc,
+            {
+                "stage": "data.fetch_ohlcv",
+                "exchange": inputs["exchange"],
+                "symbol": inputs["asset"],
+                "timeframe": inputs["timeframe"],
+                "days": int(inputs["days"]),
+            },
+        )
+        latency_ms = int((time.perf_counter() - run_started) * 1000)
+        LOG_STORE.append_run(
+            {
+                "run_id": run_id,
+                "run_ts": utc_now_iso(),
+                "exchange": inputs["exchange"],
+                "symbol": inputs["asset"],
+                "timeframe": inputs["timeframe"],
+                "days": int(inputs["days"]),
+                "status": "fail",
+                "latency_ms": latency_ms,
+                "rate_limit_hits": rate_limit_hits,
+                "params_json": to_json_str(sanitize_meta(inputs)),
+                "metrics_json": to_json_str({}),
+                "decision_json": to_json_str({}),
+            }
+        )
         render_error("Quick check failed. Please verify inputs and try again.", exc)
 
 if submitted_compare:
+    run_id = str(uuid.uuid4())
+    run_started = time.perf_counter()
+    rate_limit_hits = 0
+    append_event(run_id, "INFO", "ui.submit", "User submitted scenario compare", meta=inputs)
     try:
         with st.spinner("Computing..."):
-            st.session_state.compare_result = run_compare_check(inputs)
+            st.session_state.compare_result = run_compare_check(inputs, run_id)
+        latency_ms = int((time.perf_counter() - run_started) * 1000)
+        compare_result = st.session_state.compare_result
+        final_decision_payload = compare_result["final"]
+        final_status = "ok" if final_decision_payload.get("label") == "INVEST" else "warn"
+        if final_decision_payload.get("label") == "NO":
+            final_status = "fail"
+        LOG_STORE.append_run(
+            {
+                "run_id": run_id,
+                "run_ts": utc_now_iso(),
+                "exchange": inputs["exchange"],
+                "symbol": compare_result["symbol"],
+                "timeframe": inputs["timeframe"],
+                "days": int(inputs["days"]),
+                "status": final_status,
+                "latency_ms": latency_ms,
+                "rate_limit_hits": rate_limit_hits,
+                "params_json": to_json_str(sanitize_meta(inputs)),
+                "metrics_json": to_json_str({key: value["metrics"] for key, value in compare_result["scenarios"].items()}),
+                "decision_json": to_json_str(final_decision_payload),
+            }
+        )
     except Exception as exc:
+        if "Too many requests" in str(exc) or "DDoSProtection" in str(exc):
+            rate_limit_hits += 1
+        append_error(
+            run_id,
+            exc,
+            {
+                "stage": "data.fetch_ohlcv",
+                "exchange": inputs["exchange"],
+                "symbol": inputs["asset"],
+                "timeframe": inputs["timeframe"],
+                "days": int(inputs["days"]),
+            },
+        )
+        latency_ms = int((time.perf_counter() - run_started) * 1000)
+        LOG_STORE.append_run(
+            {
+                "run_id": run_id,
+                "run_ts": utc_now_iso(),
+                "exchange": inputs["exchange"],
+                "symbol": inputs["asset"],
+                "timeframe": inputs["timeframe"],
+                "days": int(inputs["days"]),
+                "status": "fail",
+                "latency_ms": latency_ms,
+                "rate_limit_hits": rate_limit_hits,
+                "params_json": to_json_str(sanitize_meta(inputs)),
+                "metrics_json": to_json_str({}),
+                "decision_json": to_json_str({}),
+            }
+        )
         render_error("Scenario compare failed. Please verify inputs and try again.", exc)
 
 quick_tab, compare_tab, history_tab = st.tabs(["Quick", "Compare", "History"])
