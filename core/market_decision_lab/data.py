@@ -72,10 +72,6 @@ def fetch_ohlcv(exchange_name: str, symbol: str, timeframe: str, days: int) -> p
                 jitter = random.uniform(0, base_delay_seconds)
                 time.sleep(max(base_delay_seconds, exponential + jitter))
 
-    markets = _with_retry(exchange.load_markets)
-    if symbol not in markets:
-        raise ValueError(f"Symbol {symbol} is not available on {exchange_name}")
-
     candles_needed = max(50, math.ceil(days * 1440 / TIMEFRAME_TO_MINUTES[timeframe]))
     limit = min(1000, candles_needed + 20)
     since = exchange.milliseconds() - (candles_needed + 20) * TIMEFRAME_TO_MINUTES[timeframe] * 60 * 1000
