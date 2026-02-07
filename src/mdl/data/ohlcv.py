@@ -5,7 +5,6 @@ from __future__ import annotations
 import math
 import random
 import time
-import ccxt
 import pandas as pd
 
 TIMEFRAME_TO_MINUTES: dict[str, int] = {"1m": 1, "5m": 5, "15m": 15, "1h": 60, "4h": 240, "1d": 1440}
@@ -36,6 +35,8 @@ def select_symbol(exchange_name: str, asset: str, markets: dict) -> str:
 
 def fetch_ohlcv(exchange_name: str, symbol: str, timeframe: str, days: int) -> pd.DataFrame:
     """Fetch OHLCV candles for a symbol and timeframe covering `days`."""
+    import ccxt  # Lazy import avoids blocking Streamlit Cloud startup during module import.
+
     if timeframe not in TIMEFRAME_TO_MINUTES:
         raise ValueError(f"Unsupported timeframe: {timeframe}")
 
