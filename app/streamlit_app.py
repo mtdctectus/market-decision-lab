@@ -32,6 +32,9 @@ from market_decision_lab.storage import init_db, load_runs, load_trades, save_ca
 
 ASSETS = ["BTC", "ETH", "SOL", "ADA", "AVAX", "LINK", "DOT", "MATIC", "LTC", "BCH"]
 
+TIMEFRAME_DAY_LIMITS = {"1h": 41, "4h": 166, "1d": 3650}
+COMPARE_MAX_DAYS = 41
+
 st.set_page_config(page_title="Market Decision Lab", layout="wide")
 st.title("Market Decision Lab")
 st.caption("Research-only decision support. No live trading. No financial advice.")
@@ -254,7 +257,10 @@ with st.sidebar:
         exchange = st.selectbox("Exchange", ["kraken", "coinbase"], index=0)
         asset = st.selectbox("Asset", ASSETS, index=0)
         timeframe = st.selectbox("Timeframe", ["1h", "4h", "1d"], index=1)
-        days = st.number_input("Days", min_value=7, max_value=365, value=30, step=1)
+        quick_days_max = TIMEFRAME_DAY_LIMITS.get(timeframe, 365)
+        days = st.number_input("Days", min_value=7, max_value=quick_days_max, value=min(30, quick_days_max), step=1)
+        st.caption(f"Quick Check day limit for {timeframe}: {quick_days_max} (exchange API limit is 1000 candles).")
+        st.caption(f"Compare mode is capped at {COMPARE_MAX_DAYS} days because it includes 1h candles (1000-candle API limit).")
 
         with st.expander("Advanced", expanded=False):
             ema_window = st.selectbox("EMA window", [20, 50], index=0)
@@ -371,67 +377,71 @@ if submitted_quick:
         render_error("Quick check failed. Please verify inputs and try again.", exc)
 
 if submitted_compare:
-    run_id = str(uuid.uuid4())
-    run_started = time.perf_counter()
-    rate_limit_hits = 0
-    append_event(run_id, "INFO", "ui.submit", "User submitted scenario compare", meta=inputs)
-    try:
-        with st.spinner("Computing..."):
-            st.session_state.compare_result = run_compare_check(inputs, run_id)
-        latency_ms = int((time.perf_counter() - run_started) * 1000)
-        compare_result = st.session_state.compare_result
-        final_decision_payload = compare_result["final"]
-        final_status = "ok" if final_decision_payload.get("label") == "INVEST" else "warn"
-        if final_decision_payload.get("label") == "NO":
-            final_status = "fail"
-        LOG_STORE.append_run(
-            {
-                "run_id": run_id,
-                "run_ts": utc_now_iso(),
-                "exchange": inputs["exchange"],
-                "symbol": compare_result["symbol"],
-                "timeframe": inputs["timeframe"],
-                "days": int(inputs["days"]),
-                "status": final_status,
-                "latency_ms": latency_ms,
-                "rate_limit_hits": rate_limit_hits,
-                "params_json": to_json_str(sanitize_meta(inputs)),
-                "metrics_json": to_json_str({key: value["metrics"] for key, value in compare_result["scenarios"].items()}),
-                "decision_json": to_json_str(final_decision_payload),
-            }
-        )
-    except Exception as exc:
-        if "Too many requests" in str(exc) or "DDoSProtection" in str(exc):
-            rate_limit_hits += 1
-        append_error(
-            run_id,
-            exc,
-            {
-                "stage": "data.fetch_ohlcv",
-                "exchange": inputs["exchange"],
-                "symbol": inputs["asset"],
-                "timeframe": inputs["timeframe"],
-                "days": int(inputs["days"]),
-            },
-        )
-        latency_ms = int((time.perf_counter() - run_started) * 1000)
-        LOG_STORE.append_run(
-            {
-                "run_id": run_id,
-                "run_ts": utc_now_iso(),
-                "exchange": inputs["exchange"],
-                "symbol": inputs["asset"],
-                "timeframe": inputs["timeframe"],
-                "days": int(inputs["days"]),
-                "status": "fail",
-                "latency_ms": latency_ms,
-                "rate_limit_hits": rate_limit_hits,
-                "params_json": to_json_str(sanitize_meta(inputs)),
-                "metrics_json": to_json_str({}),
-                "decision_json": to_json_str({}),
-            }
-        )
-        render_error("Scenario compare failed. Please verify inputs and try again.", exc)
+    if int(inputs["days"]) > COMPARE_MAX_DAYS:
+        st.warning(f"Compare supports up to {COMPARE_MAX_DAYS} days to stay within exchange candle limits.")
+    else:
+        run_id = str(uuid.uuid4())
+        run_started = time.perf_counter()
+        rate_limit_hits = 0
+        append_event(run_id, "INFO", "ui.submit", "User submitted scenario compare", meta=inputs)
+        try:
+            with st.spinner("Computing..."):
+                st.session_state.compare_result = run_compare_check(inputs, run_id)
+
+            latency_ms = int((time.perf_counter() - run_started) * 1000)
+            compare_result = st.session_state.compare_result
+            final_decision_payload = compare_result["final"]
+            final_status = "ok" if final_decision_payload.get("label") == "INVEST" else "warn"
+            if final_decision_payload.get("label") == "NO":
+                final_status = "fail"
+            LOG_STORE.append_run(
+                {
+                    "run_id": run_id,
+                    "run_ts": utc_now_iso(),
+                    "exchange": inputs["exchange"],
+                    "symbol": compare_result["symbol"],
+                    "timeframe": inputs["timeframe"],
+                    "days": int(inputs["days"]),
+                    "status": final_status,
+                    "latency_ms": latency_ms,
+                    "rate_limit_hits": rate_limit_hits,
+                    "params_json": to_json_str(sanitize_meta(inputs)),
+                    "metrics_json": to_json_str({key: value["metrics"] for key, value in compare_result["scenarios"].items()}),
+                    "decision_json": to_json_str(final_decision_payload),
+                }
+            )
+        except Exception as exc:
+            if "Too many requests" in str(exc) or "DDoSProtection" in str(exc):
+                rate_limit_hits += 1
+            append_error(
+                run_id,
+                exc,
+                {
+                    "stage": "data.fetch_ohlcv",
+                    "exchange": inputs["exchange"],
+                    "symbol": inputs["asset"],
+                    "timeframe": inputs["timeframe"],
+                    "days": int(inputs["days"]),
+                },
+            )
+            latency_ms = int((time.perf_counter() - run_started) * 1000)
+            LOG_STORE.append_run(
+                {
+                    "run_id": run_id,
+                    "run_ts": utc_now_iso(),
+                    "exchange": inputs["exchange"],
+                    "symbol": inputs["asset"],
+                    "timeframe": inputs["timeframe"],
+                    "days": int(inputs["days"]),
+                    "status": "fail",
+                    "latency_ms": latency_ms,
+                    "rate_limit_hits": rate_limit_hits,
+                    "params_json": to_json_str(sanitize_meta(inputs)),
+                    "metrics_json": to_json_str({}),
+                    "decision_json": to_json_str({}),
+                }
+            )
+            render_error("Scenario compare failed. Please verify inputs and try again.", exc)
 
 quick_tab, compare_tab, history_tab = st.tabs(["Quick", "Compare", "History"])
 

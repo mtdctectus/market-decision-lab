@@ -31,6 +31,11 @@ pip install -r requirements.txt
 streamlit run app/streamlit_app.py
 ```
 
+## Local sanity check
+```bash
+python tools/smoke_check.py
+```
+
 ## Log collection and export
 The app writes audit-friendly CSV logs to `app/data/logs` by default (override with `MDL_LOG_DIR`).
 
