@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import math
+import time
 from typing import Dict
 
 import ccxt
@@ -43,8 +44,28 @@ def fetch_ohlcv(exchange_name: str, symbol: str, timeframe: str, days: int) -> p
     if exchange_cls is None:
         raise ValueError(f"Unsupported exchange: {exchange_name}")
 
-    exchange = exchange_cls({"enableRateLimit": True})
-    markets = exchange.load_markets()
+    exchange = exchange_cls(
+        {
+            "enableRateLimit": True,
+            "timeout": 30000,
+            "options": {"adjustForTimeDifference": True},
+        }
+    )
+    retry_errors = (ccxt.DDoSProtection, ccxt.RateLimitExceeded, ccxt.NetworkError)
+    max_attempts = 5
+
+    def _with_retry(func, *args, **kwargs):
+        delay_seconds = 1.0
+        for attempt in range(1, max_attempts + 1):
+            try:
+                return func(*args, **kwargs)
+            except retry_errors:
+                if attempt == max_attempts:
+                    raise
+                time.sleep(delay_seconds)
+                delay_seconds *= 2
+
+    markets = _with_retry(exchange.load_markets)
     if symbol not in markets:
         raise ValueError(f"Symbol {symbol} is not available on {exchange_name}")
 
@@ -52,7 +73,7 @@ def fetch_ohlcv(exchange_name: str, symbol: str, timeframe: str, days: int) -> p
     limit = min(1000, candles_needed + 20)
     since = exchange.milliseconds() - (candles_needed + 20) * TIMEFRAME_TO_MINUTES[timeframe] * 60 * 1000
 
-    raw = exchange.fetch_ohlcv(symbol, timeframe=timeframe, since=since, limit=limit)
+    raw = _with_retry(exchange.fetch_ohlcv, symbol, timeframe=timeframe, since=since, limit=limit)
     if not raw:
         raise ValueError("No OHLCV data returned")
 

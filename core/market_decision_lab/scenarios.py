@@ -29,9 +29,10 @@ def _select_best(candidates: list[dict], key: Callable[[dict], Any], reverse: bo
 def run_scenarios(exchange: str, symbol: str, days: int, initial_cash: float, base_params: dict | None = None) -> dict:
     base_params = base_params or {}
     candidates = []
+    timeframe_data = {timeframe: fetch_ohlcv(exchange, symbol, timeframe, days) for timeframe in ["1h", "4h", "1d"]}
 
     for timeframe, ema_window, signal_mode in product(["1h", "4h", "1d"], [20, 50], ["strict", "relaxed"]):
-        ohlcv_df = fetch_ohlcv(exchange, symbol, timeframe, days)
+        ohlcv_df = timeframe_data[timeframe]
         params = BacktestParams(
             ema_window=ema_window,
             signal_mode=signal_mode,
