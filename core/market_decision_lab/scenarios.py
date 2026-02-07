@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import asdict
 from itertools import product
+from typing import Any
 
 from .backtest import BacktestParams, run_backtest
 from .config import DD_MAX, TPW_TARGET
@@ -15,6 +17,13 @@ from .metrics import summarize_metrics
 def _stability_score(metrics: dict) -> float:
     dd_decimal = metrics["Max Drawdown %"] / 100.0
     return 1 / (1 + dd_decimal + abs(metrics["Trades Per Week"] - TPW_TARGET))
+
+
+def _select_best(candidates: list[dict], key: Callable[[dict], Any], reverse: bool = True) -> dict:
+    """Helper to safely select best candidate from a list."""
+    if not candidates:
+        raise ValueError("Cannot select from empty candidates list")
+    return sorted(candidates, key=key, reverse=reverse)[0]
 
 
 def run_scenarios(exchange: str, symbol: str, days: int, initial_cash: float, base_params: dict | None = None) -> dict:
@@ -48,38 +57,59 @@ def run_scenarios(exchange: str, symbol: str, days: int, initial_cash: float, ba
             }
         )
 
+    if not candidates:
+        raise ValueError("No scenarios generated - check data availability")
+
     def sig(c: dict) -> tuple:
         p = c.get("params", {})
         return (p.get("timeframe"), p.get("ema_window"), p.get("signal_mode"))
 
     used = set()
 
-    sorted_a = sorted(
-        candidates,
-        key=lambda c: (
-            c["metrics"]["Expectancy %"],
-            -c["metrics"]["Max Drawdown %"],
-            -abs(c["metrics"]["Trades Per Week"] - TPW_TARGET),
-        ),
-        reverse=True,
-    )
-    scenario_a = next(c for c in sorted_a if sig(c) not in used)
+    # Scenario A: Best expectancy with balanced risk
+    # Find first unused scenario, fallback to best if all used
+    unused_a = [c for c in candidates if sig(c) not in used]
+    if unused_a:
+        scenario_a = _select_best(
+            unused_a,
+            key=lambda c: (
+                c["metrics"]["Expectancy %"],
+                -c["metrics"]["Max Drawdown %"],
+                -abs(c["metrics"]["Trades Per Week"] - TPW_TARGET),
+            ),
+        )
+    else:
+        scenario_a = _select_best(
+            candidates,
+            key=lambda c: (
+                c["metrics"]["Expectancy %"],
+                -c["metrics"]["Max Drawdown %"],
+                -abs(c["metrics"]["Trades Per Week"] - TPW_TARGET),
+            ),
+        )
     used.add(sig(scenario_a))
 
+    # Scenario B: Best return within risk limits
     b_eligible = [c for c in candidates if c["metrics"]["Max Drawdown %"] <= DD_MAX and sig(c) not in used]
     if b_eligible:
-        scenario_b = sorted(b_eligible, key=lambda c: c["metrics"]["Annualized Return %"], reverse=True)[0]
+        scenario_b = _select_best(b_eligible, key=lambda c: c["metrics"]["Annualized Return %"])
     else:
-        scenario_b = sorted(
-            [c for c in candidates if sig(c) not in used],
-            key=lambda c: c["metrics"]["Annualized Return %"],
-            reverse=True,
-        )[0]
+        b_candidates = [c for c in candidates if sig(c) not in used]
+        if b_candidates:
+            scenario_b = _select_best(b_candidates, key=lambda c: c["metrics"]["Annualized Return %"])
+        else:
+            # Fallback: reuse a scenario if all are used
+            scenario_b = _select_best(candidates, key=lambda c: c["metrics"]["Annualized Return %"])
         scenario_b["risk_exceeded"] = True
     used.add(sig(scenario_b))
 
+    # Scenario C: Most stable/consistent
     c_options = [c for c in candidates if sig(c) not in used]
-    scenario_c = sorted(c_options, key=lambda c: _stability_score(c["metrics"]), reverse=True)[0]
+    if c_options:
+        scenario_c = _select_best(c_options, key=lambda c: _stability_score(c["metrics"]))
+    else:
+        # Fallback: reuse a scenario if all are used
+        scenario_c = _select_best(candidates, key=lambda c: _stability_score(c["metrics"]))
     used.add(sig(scenario_c))
 
     return {"A": scenario_a, "B": scenario_b, "C": scenario_c, "all_candidates": candidates}
