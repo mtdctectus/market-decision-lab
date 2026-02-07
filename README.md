@@ -11,11 +11,14 @@ Market Decision Lab is a Streamlit decision-support application for evaluating w
 - Computes performance and risk metrics.
 - Produces a decision label: **INVEST**, **CAUTION**, or **NO**.
 - Stores run and trade history in SQLite at `data/app.db`.
+- Collects production-friendly CSV logs for run audits and diagnostics.
 
 ## Repository structure
 - `app/streamlit_app.py` - Streamlit entrypoint.
-- `core/market_decision_lab/` - Core backtest, data, metrics, decision, scenario, and storage logic.
+- `app/pages/Logs.py` - Streamlit page for downloading log CSVs and ZIP bundles.
+- `core/market_decision_lab/` - Core backtest, data, metrics, decision, scenario, storage, and logging logic.
 - `data/` - SQLite database directory created at runtime.
+- `app/data/logs/` - Default CSV log directory.
 - `export_data.py` - Script to export runs and trades data to CSV files.
 - `requirements.txt` - Python dependencies.
 
@@ -27,6 +30,25 @@ Market Decision Lab is a Streamlit decision-support application for evaluating w
 pip install -r requirements.txt
 streamlit run app/streamlit_app.py
 ```
+
+## Log collection and export
+The app writes audit-friendly CSV logs to `app/data/logs` by default (override with `MDL_LOG_DIR`).
+
+Collected files:
+- `runs.csv` with run-level records (status, latency, rate-limit hits, params, metrics, decision).
+- `events.csv` with stage-level lifecycle events (for example UI submit, data fetch, and decision evaluation).
+- `errors.csv` with exception summaries and trimmed tracebacks.
+- `app_health.csv` is reserved for optional health metrics.
+
+How to download logs:
+1. Open the **Logs** page in the Streamlit app.
+2. Use download buttons for `runs.csv`, `events.csv`, and `errors.csv`.
+3. Use the ZIP button to download all existing log files as one archive.
+
+Privacy notes:
+- Sensitive metadata keys are removed before writing logs (for example API keys, tokens, authorization headers, cookies, and IP fields).
+- Very long string values are truncated before persistence.
+- Do not add secrets to user input fields.
 
 ## Export data
 To export the runs and trades data from the SQLite database to CSV files:
