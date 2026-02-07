@@ -195,14 +195,14 @@ inputs = {
 
 if submitted_quick:
     try:
-        with st.spinner("Computing…"):
+        with st.spinner("Computing..."):
             st.session_state.quick_result = run_quick_check(inputs)
     except Exception as exc:
         render_error("Quick check failed. Please verify inputs and try again.", exc)
 
 if submitted_compare:
     try:
-        with st.spinner("Computing…"):
+        with st.spinner("Computing..."):
             st.session_state.compare_result = run_compare_check(inputs)
     except Exception as exc:
         render_error("Scenario compare failed. Please verify inputs and try again.", exc)
