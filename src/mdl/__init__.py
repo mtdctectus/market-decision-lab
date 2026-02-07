@@ -1,4 +1,4 @@
-"""Market Decision Lab core package."""
+"""Market Decision Lab internal engine package."""
 
 from .decision import evaluate_run, final_decision
 

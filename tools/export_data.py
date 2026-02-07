@@ -6,7 +6,7 @@ import pandas as pd
 from pathlib import Path
 
 # Database path (resolved relative to this script's directory)
-db = Path(__file__).resolve().parent / 'data' / 'app.db'
+db = Path(__file__).resolve().parents[1] / 'data' / 'app.db'
 
 # Check if database exists
 if not db.exists():

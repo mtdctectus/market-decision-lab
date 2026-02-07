@@ -7,9 +7,9 @@ import math
 import numpy as np
 import pandas as pd
 
-from .backtest import BacktestParams
-from .strategies import STRATEGIES, generate_candidates
-from .strategy_backtest import run_backtest_signals
+from mdl.backtest.engine import BacktestParams
+from mdl.strategies import STRATEGIES, generate_candidates
+from mdl.backtest.engine import run_backtest_signals
 
 OBJECTIVES = {
     "Sharpe": ("sharpe", False),

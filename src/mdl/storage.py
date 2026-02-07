@@ -11,8 +11,8 @@ import pandas as pd
 # Anchor storage under the repository root so the DB location is stable
 # across local runs (from any working directory) and Streamlit Cloud.
 #
-# storage.py lives at: <repo>/core/market_decision_lab/storage.py
-# parents[0]=market_decision_lab, [1]=core, [2]=<repo>
+# storage.py lives at: <repo>/src/mdl/storage.py
+# parents[0]=mdl, [1]=src, [2]=<repo>
 REPO_ROOT = Path(__file__).resolve().parents[2]
 DB_PATH = REPO_ROOT / "data" / "app.db"
 
