@@ -17,7 +17,7 @@ if not db.exists():
 # Connect to database
 conn = sqlite3.connect(db)
 
-# Export runs table
+# Export runs table (most recent first) and trades table (chronological order by exit time)
 runs = pd.read_sql_query('select * from runs order by run_ts desc', conn)
 trades = pd.read_sql_query('select * from trades order by exit_ts asc', conn)
 
@@ -29,4 +29,4 @@ trades.to_csv('trades.csv', index=False)
 conn.close()
 
 # Print summary
-print('Exported:', len(runs), 'runs and', len(trades), 'trades')
+print(f'Exported: {len(runs)} runs and {len(trades)} trades')
