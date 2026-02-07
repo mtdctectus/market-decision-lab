@@ -1,44 +1,34 @@
-# market-decision-lab
+# Market Decision Lab
 
-Market Decision Lab is a research-oriented decision-support tool for evaluating whether market conditions look reasonable for a strategy-based investment hypothesis.
+Market Decision Lab is a Streamlit decision-support application for evaluating whether market conditions are reasonable for a strategy hypothesis.
 
-> This tool is for research and education only.
-> It does **not** execute live trades and is **not** financial advice.
+> This application is for research and education only.
+> It does not execute live trades and is not financial advice.
 
-## Core output
-The application answers one question:
+## Features
+- Pulls OHLCV market data through `ccxt`.
+- Runs a long-only EMA + ATR backtest.
+- Computes performance and risk metrics.
+- Produces a decision label: **INVEST**, **CAUTION**, or **NO**.
+- Stores run and trade history in SQLite at `data/app.db`.
 
-**"Is it reasonable to invest in this market under the selected conditions?"**
+## Repository structure
+- `app/streamlit_app.py` - Streamlit entrypoint.
+- `core/market_decision_lab/` - Core backtest, data, metrics, decision, scenario, and storage logic.
+- `data/` - SQLite database directory created at runtime.
+- `requirements.txt` - Python dependencies.
 
-It produces a final label:
-- **INVEST**: at least one scenario is robust under thresholds.
-- **CAUTION**: mixed results; risk controls are required.
-- **NO**: all tested scenarios are weak or too risky.
+## Requirements
+- Python 3.10+
 
-### Color coding
-- 🟢 **GREEN**: strong metrics and acceptable risk.
-- 🟡 **YELLOW**: mixed quality / moderate risk.
-- 🔴 **RED**: fails key return, drawdown, or sample-size thresholds.
-
-## Monorepo layout
-- `app/` Streamlit UI
-- `core/` reusable strategy, metrics, decision, scenarios, and storage logic
-- `data/` SQLite database and cache directory
-
-## Deploy on Streamlit Cloud
-1. Push this repository to GitHub.
-2. In Streamlit Cloud, create a new app from this repo.
-3. Set main file path to:
-   - `app/streamlit_app.py`
-4. Deploy.
-
-Dependencies are provided in the root `requirements.txt`, which Streamlit Cloud installs automatically.
-
-## Local run
+## Run locally
 ```bash
 pip install -r requirements.txt
 streamlit run app/streamlit_app.py
 ```
 
-## Project context
-Project context is documented directly in this repository's source files and README.
+## Streamlit Cloud deployment
+1. Push this repository to GitHub.
+2. Create a new Streamlit Cloud app from this repository.
+3. Set the main file path to `app/streamlit_app.py`.
+4. Deploy.

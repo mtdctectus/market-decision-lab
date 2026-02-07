@@ -105,7 +105,6 @@ def run_backtest(ohlcv_df: pd.DataFrame, params: BacktestParams | None = None) -
                 fee = gross * params.fee_per_side
                 cash = gross - fee
 
-                pnl = cash - params.initial_cash if len(trades) == 0 else cash - states[-1]["equity_pre"]
                 pnl_pct = ((effective_exit - entry_price_cost) / entry_price_cost) * 100
                 trades.append(
                     {

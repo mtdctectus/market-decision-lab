@@ -93,22 +93,6 @@ def save_candles(exchange: str, symbol: str, timeframe: str, candles_df: pd.Data
         )
 
 
-def load_candles(exchange: str, symbol: str, timeframe: str) -> pd.DataFrame:
-    with _conn() as conn:
-        df = pd.read_sql_query(
-            """
-            SELECT ts, open, high, low, close, volume
-            FROM candles
-            WHERE exchange=? AND symbol=? AND timeframe=?
-            ORDER BY ts ASC
-            """,
-            conn,
-            params=(exchange, symbol, timeframe),
-        )
-    if not df.empty:
-        df["ts"] = pd.to_datetime(df["ts"], utc=True)
-    return df
-
 
 def save_run(run_id: str, run_ts: str, exchange: str, symbol: str, timeframe: str, days: int, params: dict, metrics: dict, decision: dict) -> None:
     with _conn() as conn:
