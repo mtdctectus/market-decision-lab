@@ -45,6 +45,21 @@ streamlit run app/streamlit_app.py
 
 No API keys are required for the default public market data flow. If you add private integrations, keep secrets in environment variables or Streamlit Cloud secrets and never commit them.
 
+## Verification
+Run a local verification session (headless):
+```bash
+PYTHONPATH=src streamlit run app/streamlit_app.py --server.headless true --server.port 8501
+```
+
+Run deterministic offline verification (no exchange network calls):
+```bash
+PYTHONPATH=src MDL_OFFLINE=1 streamlit run app/streamlit_app.py --server.headless true --server.port 8501
+```
+
+Offline mode is opt-in and defaults to OFF. When enabled, the app uses fixture candles from `src/mdl/fixtures/`.
+
+Verification screenshots are captured under `artifacts/screenshots/` when the environment supports local artifact persistence.
+
 ## Strategy Lab (Auto)
 The Strategy Lab searches through a compact library of simple long-only strategies and parameter combinations, then ranks candidates by your selected objective:
 - **Sharpe**
