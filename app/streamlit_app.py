@@ -204,6 +204,7 @@ def run_compare_check(inputs: dict, run_id: str):
             "fee_per_side": inputs["fee"],
             "slippage_per_side": inputs["slippage"],
         },
+        ohlcv_fetcher=_cached_ohlcv,
     )
     compare_duration = int((time.perf_counter() - compare_start) * 1000)
     append_event(

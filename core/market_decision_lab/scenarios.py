@@ -26,10 +26,18 @@ def _select_best(candidates: list[dict], key: Callable[[dict], Any], reverse: bo
     return sorted(candidates, key=key, reverse=reverse)[0]
 
 
-def run_scenarios(exchange: str, symbol: str, days: int, initial_cash: float, base_params: dict | None = None) -> dict:
+def run_scenarios(
+    exchange: str,
+    symbol: str,
+    days: int,
+    initial_cash: float,
+    base_params: dict | None = None,
+    ohlcv_fetcher: Callable[[str, str, str, int], Any] = fetch_ohlcv,
+) -> dict:
+    """Run scenario sweep with injectable OHLCV fetcher to support UI-level caching."""
     base_params = base_params or {}
     candidates = []
-    timeframe_data = {timeframe: fetch_ohlcv(exchange, symbol, timeframe, days) for timeframe in ["1h", "4h", "1d"]}
+    timeframe_data = {timeframe: ohlcv_fetcher(exchange, symbol, timeframe, days) for timeframe in ["1h", "4h", "1d"]}
 
     for timeframe, ema_window, signal_mode in product(["1h", "4h", "1d"], [20, 50], ["strict", "relaxed"]):
         ohlcv_df = timeframe_data[timeframe]

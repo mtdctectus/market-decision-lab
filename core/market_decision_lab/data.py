@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import math
+import random
 import time
 from typing import Dict
 
@@ -51,19 +52,25 @@ def fetch_ohlcv(exchange_name: str, symbol: str, timeframe: str, days: int) -> p
             "options": {"adjustForTimeDifference": True},
         }
     )
-    retry_errors = (ccxt.DDoSProtection, ccxt.RateLimitExceeded, ccxt.NetworkError)
-    max_attempts = 5
+    retry_errors = (
+        ccxt.DDoSProtection,
+        ccxt.RateLimitExceeded,
+        ccxt.NetworkError,
+        ccxt.ExchangeNotAvailable,
+    )
+    max_attempts = 6
 
     def _with_retry(func, *args, **kwargs):
-        delay_seconds = 1.0
+        base_delay_seconds = max(float(getattr(exchange, "rateLimit", 0) or 0) / 1000.0, 0.1)
         for attempt in range(1, max_attempts + 1):
             try:
                 return func(*args, **kwargs)
             except retry_errors:
                 if attempt == max_attempts:
                     raise
-                time.sleep(delay_seconds)
-                delay_seconds *= 2
+                exponential = base_delay_seconds * (2 ** (attempt - 1))
+                jitter = random.uniform(0, base_delay_seconds)
+                time.sleep(max(base_delay_seconds, exponential + jitter))
 
     markets = _with_retry(exchange.load_markets)
     if symbol not in markets:
