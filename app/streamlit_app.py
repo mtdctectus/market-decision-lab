@@ -80,13 +80,29 @@ def _cached_markets(exchange_name: str) -> dict:
     return exchange_obj.load_markets()
 
 
-@st.cache_data(ttl=60 * 10, show_spinner=False)
-def _cached_ohlcv(exchange_name: str, symbol: str, timeframe: str, days: int) -> pd.DataFrame:
-    """Cache OHLCV pulls to reduce API calls and rate-limit risk."""
+def _cached_ohlcv(
+    exchange_name: str,
+    symbol: str,
+    timeframe: str,
+    days: int,
+    *,
+    use_cache: bool = True,
+    max_retries: int = 1,
+    backoff_s: int = 1,
+) -> pd.DataFrame:
+    """Fetch OHLCV candles with optional disk cache/retry controls."""
     if OFFLINE_MODE:
         return _offline_ohlcv(timeframe, days)
 
-    return fetch_ohlcv(exchange_name, symbol, timeframe, days)
+    return fetch_ohlcv(
+        exchange_name,
+        symbol,
+        timeframe,
+        days,
+        use_cache=use_cache,
+        max_retries=max_retries,
+        backoff_s=backoff_s,
+    )
 
 
 @st.cache_data(ttl=60 * 10, show_spinner=False)
@@ -99,7 +115,7 @@ def _cached_strategy_lab(
     max_runs: int,
     top_n: int,
 ) -> tuple[pd.DataFrame, dict]:
-    ohlcv_df = _cached_ohlcv(exchange_name, symbol, timeframe, days)
+    ohlcv_df = _cached_ohlcv(exchange_name, symbol, timeframe, days, use_cache=True, max_retries=1, backoff_s=1)
     return run_strategy_lab(ohlcv_df, objective=objective, max_runs=max_runs, top_n=top_n)
 
 
@@ -128,11 +144,54 @@ def save_single_run(exchange_name: str, symbol: str, tf: str, days_value: int, p
     save_trades(run_id, trades_df)
 
 
-def render_error(message: str, exc: Exception):
+def render_error(message: str, exc: Exception, *, show_debug: bool = False):
     st.error(message)
-    with st.expander("Details"):
-        st.exception(exc)
+    st.caption(f"Debug: {exc}")
+    if show_debug:
+        with st.expander("Details"):
+            st.exception(exc)
 
+
+
+
+def is_retryable_exchange_error(exc: Exception) -> bool:
+    try:
+        import ccxt
+    except Exception:
+        return False
+
+    return isinstance(
+        exc,
+        (
+            ccxt.DDoSProtection,
+            ccxt.RateLimitExceeded,
+            ccxt.RequestTimeout,
+            ccxt.NetworkError,
+            ccxt.ExchangeNotAvailable,
+        ),
+    )
+
+
+def render_fetch_error(exc: Exception, *, show_debug: bool = False):
+    if is_retryable_exchange_error(exc):
+        st.error(
+            "Could not complete the request because the exchange is rate-limiting or the network timed out. "
+            "Try reducing Days, running again shortly, or switching exchange."
+        )
+        st.caption(f"Debug: {exc}")
+        if show_debug:
+            with st.expander("Details"):
+                st.exception(exc)
+        return
+
+    render_error("Run failed. Please verify inputs and try again.", exc, show_debug=show_debug)
+
+
+
+def render_inputs_summary(exchange_name: str, symbol: str, timeframes: str, days: int, scenarios_count: int):
+    st.caption(
+        f"Inputs summary: exchange={exchange_name}, symbol={symbol}, timeframe(s)={timeframes}, days={days}, scenarios={scenarios_count}"
+    )
 
 def decision_to_status(decision: dict) -> str:
     status = str(decision.get("status", "")).upper()
@@ -173,7 +232,7 @@ def append_error(run_id: str, exc: Exception, context: dict):
     )
 
 
-def run_quick_check(inputs: dict, run_id: str):
+def run_quick_check(inputs: dict, run_id: str, data_opts: dict):
     append_event(run_id, "INFO", "run.started", "Quick check started", meta=inputs)
     append_event(run_id, "INFO", "data.load_markets", "Loading exchange markets", meta={"exchange": inputs["exchange"]})
     markets = _cached_markets(inputs["exchange"])
@@ -181,7 +240,15 @@ def run_quick_check(inputs: dict, run_id: str):
 
     append_event(run_id, "INFO", "data.fetch_ohlcv", "Fetching OHLCV candles", meta={"exchange": inputs["exchange"], "symbol": symbol, "timeframe": inputs["timeframe"], "days": int(inputs["days"])})
     fetch_start = time.perf_counter()
-    ohlcv_df = _cached_ohlcv(inputs["exchange"], symbol, inputs["timeframe"], int(inputs["days"]))
+    ohlcv_df = _cached_ohlcv(
+        inputs["exchange"],
+        symbol,
+        inputs["timeframe"],
+        int(inputs["days"]),
+        use_cache=bool(data_opts["use_cache"]),
+        max_retries=int(data_opts["max_retries"]),
+        backoff_s=int(data_opts["backoff_s"]),
+    )
     fetch_duration = int((time.perf_counter() - fetch_start) * 1000)
     append_event(
         run_id,
@@ -225,10 +292,11 @@ def run_quick_check(inputs: dict, run_id: str):
         "trades_df": tr_df,
         "metrics": metrics,
         "decision": decision,
+        "inputs": inputs.copy(),
     }
 
 
-def run_compare_check(inputs: dict, run_id: str):
+def run_compare_check(inputs: dict, run_id: str, data_opts: dict):
     append_event(run_id, "INFO", "run.started", "Scenario compare started", meta=inputs)
     append_event(run_id, "INFO", "data.load_markets", "Loading exchange markets", meta={"exchange": inputs["exchange"]})
     markets = _cached_markets(inputs["exchange"])
@@ -248,7 +316,15 @@ def run_compare_check(inputs: dict, run_id: str):
             "fee_per_side": inputs["fee"],
             "slippage_per_side": inputs["slippage"],
         },
-        ohlcv_fetcher=_cached_ohlcv,
+        ohlcv_fetcher=lambda ex, sym, tf, dd: _cached_ohlcv(
+            ex,
+            sym,
+            tf,
+            dd,
+            use_cache=bool(data_opts["use_cache"]),
+            max_retries=int(data_opts["max_retries"]),
+            backoff_s=int(data_opts["backoff_s"]),
+        ),
     )
     compare_duration = int((time.perf_counter() - compare_start) * 1000)
     append_event(
@@ -280,6 +356,7 @@ def run_compare_check(inputs: dict, run_id: str):
         "symbol": symbol,
         "scenarios": scenarios,
         "final": final,
+        "inputs": inputs.copy(),
     }
 
 
@@ -304,7 +381,7 @@ def run_app() -> None:
             st.caption(f"Quick Check day limit for {timeframe}: {quick_days_max} (exchange API limit is 1000 candles).")
             st.caption(f"Compare mode is capped at {COMPARE_MAX_DAYS} days because it includes 1h candles (1000-candle API limit).")
 
-            with st.expander("Advanced", expanded=False):
+            with st.expander("Backtest settings", expanded=False):
                 ema_window = st.selectbox("EMA window", [20, 50], index=0)
                 signal_mode = st.selectbox("Signal mode", ["strict", "relaxed"], index=0)
                 entry_mode = st.selectbox("Entry mode", ["next_open", "signal_close"], index=0)
@@ -319,6 +396,12 @@ def run_app() -> None:
                     step=0.0001,
                     format="%.4f",
                 )
+
+            with st.expander("Advanced", expanded=False):
+                use_cached_data = st.checkbox("Use cached data when available", value=True)
+                show_debug_details = st.checkbox("Show debug details", value=False)
+                max_retries = st.selectbox("Max retries", [0, 1, 2, 3], index=1)
+                retry_backoff = st.selectbox("Retry backoff (seconds)", [0, 1, 2, 5], index=1)
 
             submitted_quick = st.form_submit_button("Run Quick Check", use_container_width=True, disabled=mode != "Quick Check")
             submitted_compare = st.form_submit_button("Run A/B/C Compare", use_container_width=True, disabled=mode != "A/B/C Compare")
@@ -376,6 +459,14 @@ def run_app() -> None:
         "top_n": int(top_n),
     }
 
+    data_opts = {
+        "use_cache": bool(use_cached_data),
+        "show_debug": bool(show_debug_details),
+        "max_retries": int(max_retries),
+        "backoff_s": int(retry_backoff),
+    }
+
+
     if submitted_quick:
         run_id = str(uuid.uuid4())
         run_started = time.perf_counter()
@@ -383,7 +474,7 @@ def run_app() -> None:
         append_event(run_id, "INFO", "ui.submit", "User submitted quick check", meta=inputs)
         try:
             with st.spinner("Computing..."):
-                st.session_state.quick_result = run_quick_check(inputs, run_id)
+                st.session_state.quick_result = run_quick_check(inputs, run_id, data_opts)
             latency_ms = int((time.perf_counter() - run_started) * 1000)
             quick_result = st.session_state.quick_result
             LOG_STORE.append_run(
@@ -403,7 +494,7 @@ def run_app() -> None:
                 }
             )
         except Exception as exc:
-            if "Too many requests" in str(exc) or "DDoSProtection" in str(exc):
+            if is_retryable_exchange_error(exc):
                 rate_limit_hits += 1
             append_error(
                 run_id,
@@ -433,7 +524,7 @@ def run_app() -> None:
                     "decision_json": to_json_str({}),
                 }
             )
-            render_error("Quick check failed. Please verify inputs and try again.", exc)
+            render_fetch_error(exc, show_debug=bool(data_opts["show_debug"]))
 
     if submitted_compare:
         if int(inputs["days"]) > COMPARE_MAX_DAYS:
@@ -445,7 +536,7 @@ def run_app() -> None:
             append_event(run_id, "INFO", "ui.submit", "User submitted scenario compare", meta=inputs)
             try:
                 with st.spinner("Computing..."):
-                    st.session_state.compare_result = run_compare_check(inputs, run_id)
+                    st.session_state.compare_result = run_compare_check(inputs, run_id, data_opts)
 
                 latency_ms = int((time.perf_counter() - run_started) * 1000)
                 compare_result = st.session_state.compare_result
@@ -470,7 +561,7 @@ def run_app() -> None:
                     }
                 )
             except Exception as exc:
-                if "Too many requests" in str(exc) or "DDoSProtection" in str(exc):
+                if is_retryable_exchange_error(exc):
                     rate_limit_hits += 1
                 append_error(
                     run_id,
@@ -500,7 +591,7 @@ def run_app() -> None:
                         "decision_json": to_json_str({}),
                     }
                 )
-                render_error("Scenario compare failed. Please verify inputs and try again.", exc)
+                render_fetch_error(exc, show_debug=bool(data_opts["show_debug"]))
 
     if submitted_lab:
         run_id = str(uuid.uuid4())
@@ -526,7 +617,7 @@ def run_app() -> None:
                 }
         except Exception as exc:
             append_error(run_id, exc, {"stage": "strategy_lab", **lab_inputs})
-            render_error("Strategy Lab failed. Please verify inputs and try again.", exc)
+            render_error("Strategy Lab failed. Please verify inputs and try again.", exc, show_debug=bool(data_opts["show_debug"]))
 
     quick_tab, compare_tab, strategy_tab, history_tab = st.tabs(["Quick", "Compare", "Strategy Lab", "History"])
 
@@ -535,6 +626,13 @@ def run_app() -> None:
         if quick_result is None:
             st.info("Configure inputs in the sidebar and press **Run Quick Check**.")
         else:
+            render_inputs_summary(
+                quick_result["inputs"]["exchange"],
+                quick_result["symbol"],
+                quick_result["inputs"]["timeframe"],
+                int(quick_result["inputs"]["days"]),
+                1,
+            )
             decision = quick_result["decision"]
             metrics = quick_result["metrics"]
             with st.container(border=True):
@@ -556,6 +654,13 @@ def run_app() -> None:
         if compare_result is None:
             st.info("Configure inputs in the sidebar and press **Run A/B/C Compare**.")
         else:
+            render_inputs_summary(
+                compare_result["inputs"]["exchange"],
+                compare_result["symbol"],
+                "1h, 4h, 1d",
+                int(compare_result["inputs"]["days"]),
+                3,
+            )
             final = compare_result["final"]
             scenarios = compare_result["scenarios"]
 

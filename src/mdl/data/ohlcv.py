@@ -3,12 +3,15 @@
 from __future__ import annotations
 
 import math
-import random
 import time
+from collections.abc import Callable
+from pathlib import Path
 
 import pandas as pd
 
 TIMEFRAME_TO_MINUTES: dict[str, int] = {"1m": 1, "5m": 5, "15m": 15, "1h": 60, "4h": 240, "1d": 1440}
+CACHE_TTL_SECONDS = 30 * 60
+CACHE_ROOT = Path(".cache") / "ohlcv"
 
 
 _EXCHANGE_CACHE: dict[str, "ccxt.Exchange"] = {}
@@ -60,7 +63,16 @@ def select_symbol(exchange_name: str, asset: str, markets: dict) -> str:
     raise ValueError("Only Kraken and Coinbase are supported")
 
 
-def fetch_ohlcv(exchange_name: str, symbol: str, timeframe: str, days: int) -> pd.DataFrame:
+def fetch_ohlcv(
+    exchange_name: str,
+    symbol: str,
+    timeframe: str,
+    days: int,
+    *,
+    use_cache: bool = True,
+    max_retries: int = 5,
+    backoff_s: int = 1,
+) -> pd.DataFrame:
     """Fetch OHLCV candles for a symbol and timeframe covering `days`."""
     import ccxt  # Lazy import to avoid blocking Streamlit startup.
 
@@ -68,31 +80,32 @@ def fetch_ohlcv(exchange_name: str, symbol: str, timeframe: str, days: int) -> p
         raise ValueError(f"Unsupported timeframe: {timeframe}")
 
     exchange = _get_exchange(exchange_name)
-    retry_errors = (
-        ccxt.DDoSProtection,
-        ccxt.RateLimitExceeded,
-        ccxt.NetworkError,
-        ccxt.ExchangeNotAvailable,
-    )
-    max_attempts = 6
-
-    def _with_retry(func, *args, **kwargs):
-        base_delay_seconds = max(float(getattr(exchange, "rateLimit", 0) or 0) / 1000.0, 0.1)
-        for attempt in range(1, max_attempts + 1):
-            try:
-                return func(*args, **kwargs)
-            except retry_errors:
-                if attempt == max_attempts:
-                    raise
-                exponential = base_delay_seconds * (2 ** (attempt - 1))
-                jitter = random.uniform(0, base_delay_seconds)
-                time.sleep(max(base_delay_seconds, exponential + jitter))
 
     candles_needed = max(50, math.ceil(days * 1440 / TIMEFRAME_TO_MINUTES[timeframe]))
     limit = min(1000, candles_needed + 20)
     since = exchange.milliseconds() - (candles_needed + 20) * TIMEFRAME_TO_MINUTES[timeframe] * 60 * 1000
 
-    raw = _with_retry(exchange.fetch_ohlcv, symbol, timeframe=timeframe, since=since, limit=limit)
+    cache_path = _cache_path(exchange_name, symbol, timeframe, days)
+    if use_cache:
+        cached_df = _read_cache(cache_path, CACHE_TTL_SECONDS)
+        if cached_df is not None:
+            return cached_df
+
+    raw = fetch_with_retries(
+        lambda: exchange.fetch_ohlcv(symbol, timeframe=timeframe, since=since, limit=limit),
+        max_retries=max_retries,
+        backoff_s=backoff_s,
+        is_retryable_exception=lambda exc: isinstance(
+            exc,
+            (
+                ccxt.DDoSProtection,
+                ccxt.RateLimitExceeded,
+                ccxt.RequestTimeout,
+                ccxt.NetworkError,
+                ccxt.ExchangeNotAvailable,
+            ),
+        ),
+    )
     if not raw:
         raise ValueError("No OHLCV data returned")
 
@@ -101,4 +114,49 @@ def fetch_ohlcv(exchange_name: str, symbol: str, timeframe: str, days: int) -> p
     numeric_cols = ["open", "high", "low", "close", "volume"]
     df[numeric_cols] = df[numeric_cols].astype(float)
     df = df.drop_duplicates(subset=["ts"]).sort_values("ts").reset_index(drop=True)
+    _write_cache(cache_path, df)
     return df
+
+
+def fetch_with_retries(
+    fn: Callable[[], list],
+    max_retries: int,
+    backoff_s: int,
+    is_retryable_exception: Callable[[Exception], bool],
+) -> list:
+    """Run `fn` with retry/backoff for retryable exceptions only."""
+    for attempt in range(max_retries + 1):
+        try:
+            return fn()
+        except Exception as exc:
+            if not is_retryable_exception(exc) or attempt == max_retries:
+                raise
+            time.sleep(backoff_s * (attempt + 1))
+
+
+def _cache_path(exchange_name: str, symbol: str, timeframe: str, days: int) -> Path:
+    normalized_symbol = symbol.replace("/", "-")
+    return CACHE_ROOT / exchange_name.lower() / normalized_symbol / timeframe / f"{int(days)}.parquet"
+
+
+def _read_cache(path: Path, ttl_seconds: int) -> pd.DataFrame | None:
+    if not path.exists():
+        return None
+    if time.time() - path.stat().st_mtime > ttl_seconds:
+        return None
+    try:
+        df = pd.read_parquet(path)
+    except Exception:
+        return None
+
+    if "ts" in df.columns:
+        df["ts"] = pd.to_datetime(df["ts"], utc=True)
+    return df
+
+
+def _write_cache(path: Path, df: pd.DataFrame) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        df.to_parquet(path, index=False)
+    except Exception:
+        return
