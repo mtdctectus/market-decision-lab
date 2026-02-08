@@ -21,8 +21,11 @@ from mdl.decision import evaluate_run, final_decision
 from mdl.backtest.metrics import summarize_metrics
 from mdl.scenarios import run_scenarios
 from mdl.lab.strategy_lab import OBJECTIVES, run_strategy_lab
+from mdl.logging_helpers import extract_scenario_metrics
 from mdl.log_store import CsvLogStore, sanitize_meta, to_json_str, utc_now_iso
 from mdl.storage import init_db, load_runs, load_trades, save_candles, save_run, save_trades
+
+from ui_guards import can_run_compare, can_run_strategy_lab, validate_timeframe_for_exchange
 
 ASSETS = ["BTC", "ETH", "SOL", "ADA", "AVAX", "LINK", "DOT", "MATIC", "LTC", "BCH"]
 
@@ -368,50 +371,71 @@ def run_app() -> None:
     if "strategy_lab_result" not in st.session_state:
         st.session_state.strategy_lab_result = None
 
+    def reset_session_results() -> None:
+        keys_to_clear = [
+            "quick_result",
+            "compare_result",
+            "strategy_lab_result",
+            "runs_csv_export",
+        ]
+        keys_to_clear.extend(
+            key
+            for key in st.session_state.keys()
+            if key.startswith("run_") or key.endswith("_error") or key.endswith("_lock")
+        )
+        for key in set(keys_to_clear):
+            st.session_state.pop(key, None)
+
+    submitted_quick = False
+    submitted_compare = False
+    submitted_lab = False
+
     with st.sidebar:
         st.header("Controls")
-        mode = st.selectbox("Mode", ["Quick Check", "A/B/C Compare", "Strategy Lab (Auto)"], index=0)
-        with st.form("controls_form"):
-            st.subheader("Quick / Compare")
-            exchange = st.selectbox("Exchange", ["kraken", "coinbase"], index=0)
-            asset = st.selectbox("Asset", ASSETS, index=0)
-            timeframe = st.selectbox("Timeframe", ["1h", "4h", "1d"], index=1)
-            quick_days_max = TIMEFRAME_DAY_LIMITS.get(timeframe, 365)
-            days = st.number_input("Days", min_value=7, max_value=quick_days_max, value=min(30, quick_days_max), step=1)
-            st.caption(f"Quick Check day limit for {timeframe}: {quick_days_max} (exchange API limit is 1000 candles).")
-            st.caption(f"Compare mode is capped at {COMPARE_MAX_DAYS} days because it includes 1h candles (1000-candle API limit).")
+        st.subheader("Quick / Compare")
+        exchange = st.selectbox("Exchange", ["kraken", "coinbase"], index=0)
+        asset = st.selectbox("Asset", ASSETS, index=0)
+        timeframe = st.selectbox("Timeframe", ["1h", "4h", "1d"], index=1)
+        quick_days_max = TIMEFRAME_DAY_LIMITS.get(timeframe, 365)
+        days = st.number_input("Days", min_value=7, max_value=quick_days_max, value=min(30, quick_days_max), step=1)
+        st.caption(f"Quick Check day limit for {timeframe}: {quick_days_max} (exchange API limit is 1000 candles).")
+        st.caption(f"Compare mode is capped at {COMPARE_MAX_DAYS} days because it includes 1h candles (1000-candle API limit).")
 
-            with st.expander("Backtest settings", expanded=False):
-                ema_window = st.selectbox("EMA window", [20, 50], index=0)
-                signal_mode = st.selectbox("Signal mode", ["strict", "relaxed"], index=0)
-                entry_mode = st.selectbox("Entry mode", ["next_open", "signal_close"], index=0)
-                sl_mult = st.number_input("SL ATR multiple", min_value=0.5, max_value=5.0, value=1.5, step=0.1)
-                tp_mult = st.number_input("TP ATR multiple", min_value=0.5, max_value=10.0, value=2.5, step=0.1)
-                fee = st.number_input("Fee per side", min_value=0.0, max_value=0.01, value=0.0006, step=0.0001, format="%.4f")
-                slippage = st.number_input(
-                    "Slippage per side",
-                    min_value=0.0,
-                    max_value=0.01,
-                    value=0.0002,
-                    step=0.0001,
-                    format="%.4f",
-                )
+        with st.expander("Backtest settings", expanded=False):
+            ema_window = st.selectbox("EMA window", [20, 50], index=0)
+            signal_mode = st.selectbox("Signal mode", ["strict", "relaxed"], index=0)
+            entry_mode = st.selectbox("Entry mode", ["next_open", "signal_close"], index=0)
+            sl_mult = st.number_input("SL ATR multiple", min_value=0.5, max_value=5.0, value=1.5, step=0.1)
+            tp_mult = st.number_input("TP ATR multiple", min_value=0.5, max_value=10.0, value=2.5, step=0.1)
+            fee = st.number_input("Fee per side", min_value=0.0, max_value=0.01, value=0.0006, step=0.0001, format="%.4f")
+            slippage = st.number_input(
+                "Slippage per side",
+                min_value=0.0,
+                max_value=0.01,
+                value=0.0002,
+                step=0.0001,
+                format="%.4f",
+            )
 
-            with st.expander("Advanced", expanded=False):
-                use_cached_data = st.checkbox("Use cached data when available", value=True)
-                show_debug_details = st.checkbox("Show debug details", value=False)
-                max_retries = st.selectbox("Max retries", [0, 1, 2, 3], index=1)
-                retry_backoff = st.selectbox("Retry backoff (seconds)", [0, 1, 2, 5], index=1)
-
-            submitted_quick = st.form_submit_button("Run Quick Check", use_container_width=True, disabled=mode != "Quick Check")
-            submitted_compare = st.form_submit_button("Run A/B/C Compare", use_container_width=True, disabled=mode != "A/B/C Compare")
-
-        st.divider()
         st.subheader("Strategy Lab (Auto)")
         objective = st.selectbox("Objective", list(OBJECTIVES.keys()), index=0)
         max_runs = st.slider("Max strategy runs", min_value=10, max_value=LAB_MAX_RUNS, value=60, step=10)
         top_n = st.slider("Top strategies to display", min_value=3, max_value=20, value=10, step=1)
-        submitted_lab = st.button("Run Strategy Lab", use_container_width=True, disabled=mode != "Strategy Lab (Auto)")
+
+        with st.expander("Advanced", expanded=False):
+            use_cached_data = st.checkbox("Use cached data when available", value=True)
+            show_debug_details = st.checkbox("Show debug details", value=False)
+            max_retries = st.selectbox("Max retries", [0, 1, 2, 3], index=1)
+            retry_backoff = st.selectbox("Retry backoff (seconds)", [0, 1, 2, 5], index=1)
+            if st.button("♻ Reset session", use_container_width=True):
+                reset_session_results()
+                st.rerun()
+
+        st.divider()
+        st.subheader("Actions")
+        submitted_quick = st.button("▶ Run Quick Check", use_container_width=True)
+        submitted_compare = st.button("▶▶ Run A/B/C Compare", use_container_width=True)
+        submitted_lab = st.button("🧪 Run Strategy Lab (Auto)", use_container_width=True)
 
         st.divider()
         st.subheader("Export")
@@ -466,69 +490,83 @@ def run_app() -> None:
         "backoff_s": int(retry_backoff),
     }
 
+    timeframe_ok, timeframe_msg = validate_timeframe_for_exchange(inputs["exchange"], inputs["timeframe"])
+    compare_ok, compare_msg = can_run_compare(inputs)
+    strategy_ok, strategy_msg = can_run_strategy_lab(dict(st.session_state))
+
+    if not timeframe_ok:
+        st.sidebar.caption(f"Quick Check: {timeframe_msg}")
+    if not compare_ok:
+        st.sidebar.caption(f"A/B/C Compare: {compare_msg}")
+    if not strategy_ok:
+        st.sidebar.caption(f"Strategy Lab: {strategy_msg}")
+
 
     if submitted_quick:
-        run_id = str(uuid.uuid4())
-        run_started = time.perf_counter()
-        rate_limit_hits = 0
-        append_event(run_id, "INFO", "ui.submit", "User submitted quick check", meta=inputs)
-        try:
-            with st.spinner("Computing..."):
-                st.session_state.quick_result = run_quick_check(inputs, run_id, data_opts)
-            latency_ms = int((time.perf_counter() - run_started) * 1000)
-            quick_result = st.session_state.quick_result
-            LOG_STORE.append_run(
-                {
-                    "run_id": run_id,
-                    "run_ts": utc_now_iso(),
-                    "exchange": inputs["exchange"],
-                    "symbol": quick_result["symbol"],
-                    "timeframe": inputs["timeframe"],
-                    "days": int(inputs["days"]),
-                    "status": decision_to_status(quick_result["decision"]),
-                    "latency_ms": latency_ms,
-                    "rate_limit_hits": rate_limit_hits,
-                    "params_json": to_json_str(sanitize_meta(inputs)),
-                    "metrics_json": to_json_str(quick_result["metrics"]),
-                    "decision_json": to_json_str(quick_result["decision"]),
-                }
-            )
-        except Exception as exc:
-            if is_retryable_exchange_error(exc):
-                rate_limit_hits += 1
-            append_error(
-                run_id,
-                exc,
-                {
-                    "stage": "data.fetch_ohlcv",
-                    "exchange": inputs["exchange"],
-                    "symbol": inputs["asset"],
-                    "timeframe": inputs["timeframe"],
-                    "days": int(inputs["days"]),
-                },
-            )
-            latency_ms = int((time.perf_counter() - run_started) * 1000)
-            LOG_STORE.append_run(
-                {
-                    "run_id": run_id,
-                    "run_ts": utc_now_iso(),
-                    "exchange": inputs["exchange"],
-                    "symbol": inputs["asset"],
-                    "timeframe": inputs["timeframe"],
-                    "days": int(inputs["days"]),
-                    "status": "fail",
-                    "latency_ms": latency_ms,
-                    "rate_limit_hits": rate_limit_hits,
-                    "params_json": to_json_str(sanitize_meta(inputs)),
-                    "metrics_json": to_json_str({}),
-                    "decision_json": to_json_str({}),
-                }
-            )
-            render_fetch_error(exc, show_debug=bool(data_opts["show_debug"]))
+        if not timeframe_ok:
+            st.info(timeframe_msg)
+        else:
+            run_id = str(uuid.uuid4())
+            run_started = time.perf_counter()
+            rate_limit_hits = 0
+            append_event(run_id, "INFO", "ui.submit", "User submitted quick check", meta=inputs)
+            try:
+                with st.spinner("Computing..."):
+                    st.session_state.quick_result = run_quick_check(inputs, run_id, data_opts)
+                latency_ms = int((time.perf_counter() - run_started) * 1000)
+                quick_result = st.session_state.quick_result
+                LOG_STORE.append_run(
+                    {
+                        "run_id": run_id,
+                        "run_ts": utc_now_iso(),
+                        "exchange": inputs["exchange"],
+                        "symbol": quick_result["symbol"],
+                        "timeframe": inputs["timeframe"],
+                        "days": int(inputs["days"]),
+                        "status": decision_to_status(quick_result["decision"]),
+                        "latency_ms": latency_ms,
+                        "rate_limit_hits": rate_limit_hits,
+                        "params_json": to_json_str(sanitize_meta(inputs)),
+                        "metrics_json": to_json_str(quick_result["metrics"]),
+                        "decision_json": to_json_str(quick_result["decision"]),
+                    }
+                )
+            except Exception as exc:
+                if is_retryable_exchange_error(exc):
+                    rate_limit_hits += 1
+                append_error(
+                    run_id,
+                    exc,
+                    {
+                        "stage": "data.fetch_ohlcv",
+                        "exchange": inputs["exchange"],
+                        "symbol": inputs["asset"],
+                        "timeframe": inputs["timeframe"],
+                        "days": int(inputs["days"]),
+                    },
+                )
+                latency_ms = int((time.perf_counter() - run_started) * 1000)
+                LOG_STORE.append_run(
+                    {
+                        "run_id": run_id,
+                        "run_ts": utc_now_iso(),
+                        "exchange": inputs["exchange"],
+                        "symbol": inputs["asset"],
+                        "timeframe": inputs["timeframe"],
+                        "days": int(inputs["days"]),
+                        "status": "fail",
+                        "latency_ms": latency_ms,
+                        "rate_limit_hits": rate_limit_hits,
+                        "params_json": to_json_str(sanitize_meta(inputs)),
+                        "metrics_json": to_json_str({}),
+                        "decision_json": to_json_str({}),
+                    }
+                )
+                render_fetch_error(exc, show_debug=bool(data_opts["show_debug"]))
 
     if submitted_compare:
-        if int(inputs["days"]) > COMPARE_MAX_DAYS:
-            st.warning(f"Compare supports up to {COMPARE_MAX_DAYS} days to stay within exchange candle limits.")
+        if not compare_ok:
+            st.info(compare_msg)
         else:
             run_id = str(uuid.uuid4())
             run_started = time.perf_counter()
@@ -556,7 +594,7 @@ def run_app() -> None:
                         "latency_ms": latency_ms,
                         "rate_limit_hits": rate_limit_hits,
                         "params_json": to_json_str(sanitize_meta(inputs)),
-                        "metrics_json": to_json_str({key: value["metrics"] for key, value in compare_result["scenarios"].items()}),
+                        "metrics_json": to_json_str(extract_scenario_metrics(compare_result["scenarios"])),
                         "decision_json": to_json_str(final_decision_payload),
                     }
                 )
@@ -594,30 +632,33 @@ def run_app() -> None:
                 render_fetch_error(exc, show_debug=bool(data_opts["show_debug"]))
 
     if submitted_lab:
-        run_id = str(uuid.uuid4())
-        append_event(run_id, "INFO", "ui.submit", "User submitted strategy lab", meta=lab_inputs)
-        try:
-            with st.spinner("Running auto strategy search..."):
-                markets = _cached_markets(lab_inputs["exchange"])
-                symbol = select_symbol(lab_inputs["exchange"], lab_inputs["asset"], markets)
-                results_df, details = _cached_strategy_lab(
-                    lab_inputs["exchange"],
-                    symbol,
-                    lab_inputs["timeframe"],
-                    int(lab_inputs["days"]),
-                    lab_inputs["objective"],
-                    int(lab_inputs["max_runs"]),
-                    int(lab_inputs["top_n"]),
-                )
-                st.session_state.strategy_lab_result = {
-                    "symbol": symbol,
-                    "results_df": results_df,
-                    "details": details,
-                    "inputs": lab_inputs,
-                }
-        except Exception as exc:
-            append_error(run_id, exc, {"stage": "strategy_lab", **lab_inputs})
-            render_error("Strategy Lab failed. Please verify inputs and try again.", exc, show_debug=bool(data_opts["show_debug"]))
+        if not strategy_ok:
+            st.info(strategy_msg)
+        else:
+            run_id = str(uuid.uuid4())
+            append_event(run_id, "INFO", "ui.submit", "User submitted strategy lab", meta=lab_inputs)
+            try:
+                with st.spinner("Running auto strategy search..."):
+                    markets = _cached_markets(lab_inputs["exchange"])
+                    symbol = select_symbol(lab_inputs["exchange"], lab_inputs["asset"], markets)
+                    results_df, details = _cached_strategy_lab(
+                        lab_inputs["exchange"],
+                        symbol,
+                        lab_inputs["timeframe"],
+                        int(lab_inputs["days"]),
+                        lab_inputs["objective"],
+                        int(lab_inputs["max_runs"]),
+                        int(lab_inputs["top_n"]),
+                    )
+                    st.session_state.strategy_lab_result = {
+                        "symbol": symbol,
+                        "results_df": results_df,
+                        "details": details,
+                        "inputs": lab_inputs,
+                    }
+            except Exception as exc:
+                append_error(run_id, exc, {"stage": "strategy_lab", **lab_inputs})
+                render_error("Strategy Lab failed. Please verify inputs and try again.", exc, show_debug=bool(data_opts["show_debug"]))
 
     quick_tab, compare_tab, strategy_tab, history_tab = st.tabs(["Quick", "Compare", "Strategy Lab", "History"])
 
