@@ -30,7 +30,7 @@ def _decision_score(metrics: dict) -> float:
     tpw_pen = abs(tpw - config.TPW_TARGET) / max(config.TPW_TARGET, 1e-9)
     exp_s = exp / 1.0
 
-    return (1.0 * ann_s) - (0.8 * dd_s) - (0.1 * tpw_pen) + (0.2 * exp_s)
+    return (config.W_RET * ann_s) - (config.W_DD * dd_s) - (config.W_TPW * tpw_pen) + (config.W_EXP * exp_s)
 
 
 def evaluate_run(metrics: dict) -> dict:
@@ -82,6 +82,14 @@ def evaluate_run(metrics: dict) -> dict:
 
 
 def final_decision(scenarios_dict: dict) -> dict:
+    if not scenarios_dict:
+        return {
+            "label": "NO",
+            "text": "NO - no scenarios provided.",
+            "recommended": None,
+            "reason": "Empty scenarios input; nothing to evaluate.",
+        }
+
     statuses = {k: v["decision"]["status"] for k, v in scenarios_dict.items()}
     all_red = all(s == "RED" for s in statuses.values())
 
@@ -103,9 +111,24 @@ def final_decision(scenarios_dict: dict) -> dict:
             )[0][0]
 
     if all_red:
-        return {"label": "NO", "text": "NO - all scenarios are high-risk or underperforming.", "recommended": recommended}
+        return {
+            "label": "NO",
+            "text": "NO - all scenarios are high-risk or underperforming.",
+            "recommended": recommended,
+            "reason": "Every scenario breached a hard risk limit or produced negative returns.",
+        }
 
     if any(s == "GREEN" for s in statuses.values()) and statuses.get(recommended) != "RED":
-        return {"label": "INVEST", "text": "INVEST - at least one scenario is robust with acceptable risk.", "recommended": recommended}
+        return {
+            "label": "INVEST",
+            "text": "INVEST - at least one scenario is robust with acceptable risk.",
+            "recommended": recommended,
+            "reason": f"Scenario {recommended} passed all return and drawdown thresholds.",
+        }
 
-    return {"label": "CAUTION", "text": "CAUTION - no fully robust setup; proceed only with risk controls.", "recommended": recommended}
+    return {
+        "label": "CAUTION",
+        "text": "CAUTION - no fully robust setup; proceed only with risk controls.",
+        "recommended": recommended,
+        "reason": f"Scenario {recommended} has the best score but did not reach GREEN status.",
+    }

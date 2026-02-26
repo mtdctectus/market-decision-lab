@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import asdict
 from itertools import product
 from typing import Any
@@ -36,10 +37,10 @@ def run_scenarios(
 ) -> dict:
     """Run scenario sweep with injectable OHLCV fetcher to support UI-level caching."""
     base_params = base_params or {}
-    candidates = []
     timeframe_data = {timeframe: ohlcv_fetcher(exchange, symbol, timeframe, days) for timeframe in ["1h", "4h", "1d"]}
 
-    for timeframe, ema_window, signal_mode in product(["1h", "4h", "1d"], [20, 50], ["strict", "relaxed"]):
+    def _run_combination(combo: tuple) -> dict:
+        timeframe, ema_window, signal_mode = combo
         ohlcv_df = timeframe_data[timeframe]
         params = BacktestParams(
             ema_window=ema_window,
@@ -51,20 +52,21 @@ def run_scenarios(
             slippage_per_side=float(base_params.get("slippage_per_side", 0.0002)),
             initial_cash=float(initial_cash),
         )
-
         bt_df, tr_df = run_backtest(ohlcv_df, params)
         metrics = summarize_metrics(bt_df, tr_df, initial_cash=initial_cash, test_days=days)
         decision = evaluate_run(metrics)
-        candidates.append(
-            {
-                "params": {**asdict(params), "timeframe": timeframe},
-                "backtest_df": bt_df,
-                "trades_df": tr_df,
-                "metrics": metrics,
-                "decision": decision,
-                "risk_exceeded": metrics["Max Drawdown %"] > DD_MAX,
-            }
-        )
+        return {
+            "params": {**asdict(params), "timeframe": timeframe},
+            "backtest_df": bt_df,
+            "trades_df": tr_df,
+            "metrics": metrics,
+            "decision": decision,
+            "risk_exceeded": metrics["Max Drawdown %"] > DD_MAX,
+        }
+
+    combos = list(product(["1h", "4h", "1d"], [20, 50], ["strict", "relaxed"]))
+    with ThreadPoolExecutor(max_workers=6) as executor:
+        candidates = list(executor.map(_run_combination, combos))
 
     if not candidates:
         raise ValueError("No scenarios generated - check data availability")
@@ -96,6 +98,7 @@ def run_scenarios(
                 -abs(c["metrics"]["Trades Per Week"] - TPW_TARGET),
             ),
         )
+    scenario_a["selection_reason"] = "Best expectancy with balanced risk (highest Expectancy %, lowest drawdown, closest trade frequency to target)."
     used.add(sig(scenario_a))
 
     # Scenario B: Best return within risk limits
@@ -110,6 +113,11 @@ def run_scenarios(
             # Fallback: reuse a scenario if all are used
             scenario_b = _select_best(candidates, key=lambda c: c["metrics"]["Annualized Return %"])
         scenario_b["risk_exceeded"] = True
+    scenario_b["selection_reason"] = (
+        "Best return within risk limits (highest Annualized Return % with Max Drawdown % <= DD_MAX)."
+        if not scenario_b.get("risk_exceeded")
+        else "Best return available; note: drawdown exceeds risk limit."
+    )
     used.add(sig(scenario_b))
 
     # Scenario C: Most stable/consistent
@@ -119,6 +127,7 @@ def run_scenarios(
     else:
         # Fallback: reuse a scenario if all are used
         scenario_c = _select_best(candidates, key=lambda c: _stability_score(c["metrics"]))
+    scenario_c["selection_reason"] = "Most stable/consistent (highest stability score: lowest drawdown and closest trade frequency to target)."
     used.add(sig(scenario_c))
 
     return {"A": scenario_a, "B": scenario_b, "C": scenario_c, "all_candidates": candidates}
