@@ -1,25 +1,44 @@
 """Global thresholds and defaults for decision logic."""
 
-RET_MIN = 0
-RET_GOOD = 8
-DD_WARN = 20
-DD_MAX = 25
-MIN_TRADES = 12
-TPW_TARGET = 2
-TPW_TOL = 1
+# ── Return thresholds ──────────────────────────────────────────────────────────
+RET_MIN = -5       # below this → hard RED (small negatives tolerable)
+RET_GOOD = 15      # >= this → GREEN (8% is passive index; active trading needs more)
 
-# Sharpe Ratio thresholds
-SHARPE_GOOD = 1.0   # >= this is GREEN territory
-SHARPE_MIN = 0.3    # < this is a RED flag
+# ── Drawdown thresholds ────────────────────────────────────────────────────────
+DD_WARN = 15       # above this → YELLOW (was 20 — too lenient)
+DD_MAX = 20        # above this → hard RED (was 25 — too lenient)
 
-# Win Rate thresholds
-WIN_RATE_GOOD = 50.0  # >= 50% win rate is healthy
-WIN_RATE_MIN = 35.0   # < 35% win rate is a RED flag
+# ── Trade count ────────────────────────────────────────────────────────────────
+MIN_TRADES = 12    # fewer trades → statistically unreliable
+TPW_TARGET = 2     # target trades per week
+TPW_TOL = 1        # acceptable deviation
 
-# Decision score weights used in _decision_score()
-W_RET = 1.0     # weight for annualized return contribution
-W_DD = 0.8      # weight for max drawdown penalty
-W_TPW = 0.1     # weight for trades-per-week deviation penalty
-W_EXP = 0.2     # weight for per-trade expectancy contribution
-W_SHARPE = 0.5  # weight for Sharpe Ratio contribution
-W_WR = 0.3      # weight for Win Rate contribution
+# ── Sharpe Ratio ───────────────────────────────────────────────────────────────
+SHARPE_GOOD = 1.0  # >= 1.0 → GREEN (industry standard)
+SHARPE_MIN = 0.5   # < 0.5 → hard RED (was 0.3 — too lenient, barely above noise)
+
+# ── Win Rate ───────────────────────────────────────────────────────────────────
+WIN_RATE_GOOD = 50.0  # >= 50% → GREEN
+WIN_RATE_MIN = 38.0   # < 38% → hard RED (was 35% — raised)
+
+# ── Calmar Ratio (Ann Return % / Max Drawdown %) ──────────────────────────────
+CALMAR_GOOD = 0.75   # strong risk-adjusted return relative to worst drawdown
+CALMAR_MIN = 0.25    # below this → hard RED
+
+# ── Profit Factor (Gross Profit / Gross Loss) ─────────────────────────────────
+PROFIT_FACTOR_GOOD = 1.5   # earns 1.50 for every 1.00 lost — solid edge
+PROFIT_FACTOR_MIN = 1.1    # < 1.1 → hard RED (barely above breakeven)
+
+# ── Confidence score threshold ────────────────────────────────────────────────
+# GREEN scenario with normalised score below this gets downgraded to CAUTION
+SCORE_CONFIDENCE_MIN = 0.8
+
+# ── Decision score weights ────────────────────────────────────────────────────
+W_SHARPE = 0.8   # primary quality signal (raised from 0.5)
+W_RET = 0.6      # raw return matters but misleads without risk context (was 1.0)
+W_DD = 1.0       # drawdown penalty — protect capital first (was 0.8)
+W_TPW = 0.1      # trades-per-week deviation
+W_EXP = 0.3      # per-trade expectancy (raised from 0.2)
+W_WR = 0.25      # win rate (lowered slightly — high WR with tiny wins is misleading)
+W_CALMAR = 0.4   # Calmar Ratio (new)
+W_PF = 0.3       # Profit Factor (new)
