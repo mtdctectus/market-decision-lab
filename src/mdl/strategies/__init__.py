@@ -8,6 +8,7 @@ from typing import Callable
 
 import pandas as pd
 
+from .bollinger import bollinger_breakout, bollinger_mean_reversion
 from .donchian import donchian_breakout
 from .ema import ema_crossover, ema_trend
 from .macd import macd_crossover, macd_histogram_reversal
@@ -79,6 +80,32 @@ STRATEGIES: dict[str, StrategySpec] = {
             "signal_period": [9],
         },
         build_signals=macd_histogram_reversal,
+    ),
+    "bollinger_mean_reversion": StrategySpec(
+        id="bollinger_mean_reversion",
+        name="Bollinger Mean Reversion",
+        description_template=(
+            "Long when price touches lower Bollinger Band({bb_window}, {bb_std}σ); "
+            "exit at middle band (SMA)."
+        ),
+        param_grid={
+            "bb_window": [20],
+            "bb_std": [2.0, 2.5],
+        },
+        build_signals=bollinger_mean_reversion,
+    ),
+    "bollinger_breakout": StrategySpec(
+        id="bollinger_breakout",
+        name="Bollinger Breakout",
+        description_template=(
+            "Long when price closes above upper Bollinger Band({bb_window}, {bb_std}σ); "
+            "exit when price falls below middle band."
+        ),
+        param_grid={
+            "bb_window": [20, 50],
+            "bb_std": [2.0],
+        },
+        build_signals=bollinger_breakout,
     ),
 }
 
