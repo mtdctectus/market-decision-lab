@@ -10,6 +10,7 @@ import pandas as pd
 
 from .donchian import donchian_breakout
 from .ema import ema_crossover, ema_trend
+from .macd import macd_crossover, macd_histogram_reversal
 from .rsi import rsi_mean_reversion
 
 
@@ -50,6 +51,34 @@ STRATEGIES: dict[str, StrategySpec] = {
         description_template="Long when close breaks above {breakout_window}-bar high; exit below {exit_window}-bar low.",
         param_grid={"breakout_window": [20, 55], "exit_window": [10, 20]},
         build_signals=donchian_breakout,
+    ),
+    "macd_crossover": StrategySpec(
+        id="macd_crossover",
+        name="MACD Crossover",
+        description_template=(
+            "Long when MACD({fast_period},{slow_period}) crosses above signal({signal_period}); "
+            "exit on bearish cross."
+        ),
+        param_grid={
+            "fast_period": [12],
+            "slow_period": [26],
+            "signal_period": [9],
+        },
+        build_signals=macd_crossover,
+    ),
+    "macd_histogram_reversal": StrategySpec(
+        id="macd_histogram_reversal",
+        name="MACD Histogram Reversal",
+        description_template=(
+            "Long when MACD({fast_period},{slow_period}) histogram turns positive (momentum shift); "
+            "exit when histogram turns negative."
+        ),
+        param_grid={
+            "fast_period": [8, 12],
+            "slow_period": [21, 26],
+            "signal_period": [9],
+        },
+        build_signals=macd_histogram_reversal,
     ),
 }
 
